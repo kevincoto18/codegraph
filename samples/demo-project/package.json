@@ -1,0 +1,5 @@
+{
+  "name": "codegraph-demo-project",
+  "private": true,
+  "description": "Small mixed TS/JS project that exercises every construct CodeGraph understands."
+}
