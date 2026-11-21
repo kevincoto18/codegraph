@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphSnapshot } from '../shared';
 import { INITIAL_GRAPH_CHANNEL_STATE, reduceHostMessage, summarizeGraph } from './graphChannel';
+import { functionNode, makePatch } from './testFixtures';
 
 /** Snapshot with one file, two functions, one import and one call. */
 const SNAPSHOT: GraphSnapshot = {
@@ -52,6 +53,9 @@ describe('reduceHostMessage', () => {
       snapshot: null,
       status: 'analyzing',
       errorMessage: null,
+      sessionId: 0,
+      outOfSync: false,
+      lastChange: null,
     });
   });
 
@@ -60,7 +64,14 @@ describe('reduceHostMessage', () => {
       type: 'graph/init',
       graph: SNAPSHOT,
     });
-    expect(state).toEqual({ snapshot: SNAPSHOT, status: 'ready', errorMessage: null });
+    expect(state).toEqual({
+      snapshot: SNAPSHOT,
+      status: 'ready',
+      errorMessage: null,
+      sessionId: 1,
+      outOfSync: false,
+      lastChange: null,
+    });
   });
 
   it('keeps the current graph while a rescan is analyzing', () => {
@@ -69,7 +80,11 @@ describe('reduceHostMessage', () => {
       graph: SNAPSHOT,
     });
     const analyzing = reduceHostMessage(ready, { type: 'status', state: 'analyzing' });
-    expect(analyzing).toEqual({ snapshot: SNAPSHOT, status: 'analyzing', errorMessage: null });
+    expect(analyzing).toMatchObject({
+      snapshot: SNAPSHOT,
+      status: 'analyzing',
+      errorMessage: null,
+    });
   });
 
   it('records error messages, with a fallback', () => {
@@ -87,22 +102,60 @@ describe('reduceHostMessage', () => {
       errorMessage: 'Unknown error',
     });
   });
-
-  it('leaves the state unchanged on graph/patch (applied in Phase 7)', () => {
-    const patch = {
-      version: 4,
-      upsertNodes: [],
-      removeNodeIds: [],
-      upsertEdges: [],
-      removeEdgeIds: [],
-    };
-    const state = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, { type: 'graph/patch', patch });
-    expect(state).toBe(INITIAL_GRAPH_CHANNEL_STATE);
-  });
 });
 
 describe('summarizeGraph', () => {
   it('counts nodes and edges by kind', () => {
     expect(summarizeGraph(SNAPSHOT)).toEqual({ files: 1, functions: 2, imports: 1, calls: 1 });
+  });
+});
+
+describe('reduceHostMessage — live patches', () => {
+  const ready = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+    type: 'graph/init',
+    graph: SNAPSHOT,
+  });
+
+  it('ignores patches before the first snapshot', () => {
+    const state = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'graph/patch',
+      patch: makePatch(1),
+    });
+    expect(state).toBe(INITIAL_GRAPH_CHANNEL_STATE);
+  });
+
+  it('applies the next patch and records the changed nodes', () => {
+    const added = functionNode('a.ts', 'z', 9);
+    const state = reduceHostMessage(ready, {
+      type: 'graph/patch',
+      patch: makePatch(4, { upsertNodes: [added] }),
+    });
+    expect(state.snapshot?.version).toBe(4);
+    expect(state.snapshot?.nodes).toContainEqual(added);
+    expect(state.lastChange).toEqual({ version: 4, nodeIds: new Set(['a.ts#z']) });
+    expect(state.sessionId).toBe(ready.sessionId);
+  });
+
+  it('ignores stale patches', () => {
+    expect(reduceHostMessage(ready, { type: 'graph/patch', patch: makePatch(3) })).toBe(ready);
+  });
+
+  it('flags a resync when patches were missed, then ignores further patches', () => {
+    const gap = reduceHostMessage(ready, { type: 'graph/patch', patch: makePatch(6) });
+    expect(gap).toMatchObject({ outOfSync: true, snapshot: SNAPSHOT });
+    expect(reduceHostMessage(gap, { type: 'graph/patch', patch: makePatch(7) })).toBe(gap);
+  });
+
+  it('clears the resync flag and starts a new session on the next snapshot', () => {
+    const gap = reduceHostMessage(ready, { type: 'graph/patch', patch: makePatch(6) });
+    const resynced = reduceHostMessage(gap, {
+      type: 'graph/init',
+      graph: { ...SNAPSHOT, version: 6 },
+    });
+    expect(resynced).toMatchObject({
+      outOfSync: false,
+      sessionId: ready.sessionId + 1,
+      lastChange: null,
+    });
   });
 });

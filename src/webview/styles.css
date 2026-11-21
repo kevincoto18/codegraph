@@ -336,3 +336,19 @@ body {
   fill: var(--vscode-descriptionForeground);
   font-size: 11px;
 }
+
+/* ---------- Live update feedback ---------- */
+
+@keyframes cg-changed-pulse {
+  from {
+    box-shadow: 0 0 0 3px var(--vscode-charts-green, #89d185);
+  }
+  to {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.react-flow__node.cg-changed .cg-fn,
+.react-flow__node.cg-changed .cg-file {
+  animation: cg-changed-pulse 1.5s ease-out;
+}

@@ -264,3 +264,58 @@ export function buildFlowGraph(
     edges: elements.edges,
   };
 }
+
+/**
+ * Positions nodes after an incremental update without moving existing files:
+ * files that were already laid out keep their position (including manual
+ * drags), and new files are stacked in a column to the right of the graph.
+ * Falls back to a full layout when no previous file survives.
+ *
+ * @param elements - Unpositioned nodes and edges of the updated graph.
+ * @param previousNodes - Nodes currently displayed.
+ * @param options - Layout parameters (gaps reused for the new column).
+ * @returns A new node array.
+ */
+export function preserveFilePositions(
+  elements: FlowElements,
+  previousNodes: readonly CodeGraphFlowNode[],
+  options: LayoutOptions = DEFAULT_LAYOUT_OPTIONS,
+): CodeGraphFlowNode[] {
+  const previousFiles = new Map(
+    previousNodes.filter((node) => node.type === 'file').map((node) => [node.id, node]),
+  );
+  const keptFiles = elements.nodes.filter(
+    (node) => node.type === 'file' && previousFiles.has(node.id),
+  );
+  if (keptFiles.length === 0) {
+    return layoutFileNodes(elements, options);
+  }
+
+  let maxRight = -Infinity;
+  let minTop = Infinity;
+  for (const node of keptFiles) {
+    const previous = previousFiles.get(node.id);
+    if (previous !== undefined) {
+      maxRight = Math.max(maxRight, previous.position.x + (previous.width ?? 0));
+      minTop = Math.min(minTop, previous.position.y);
+    }
+  }
+
+  const newColumnX = maxRight + options.rankSeparation;
+  let nextY = minTop;
+  const result: CodeGraphFlowNode[] = [];
+  for (const node of elements.nodes) {
+    if (node.type !== 'file') {
+      result.push(node);
+      continue;
+    }
+    const previous = previousFiles.get(node.id);
+    if (previous !== undefined) {
+      result.push({ ...node, position: previous.position });
+      continue;
+    }
+    result.push({ ...node, position: { x: newColumnX, y: nextY } });
+    nextY += (node.height ?? 0) + options.nodeSeparation;
+  }
+  return result;
+}

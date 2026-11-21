@@ -2,6 +2,15 @@
  * Pure state management for messages received from the extension host.
  */
 import type { AnalysisState, GraphSnapshot, HostToWebview } from '../shared';
+import { applyPatch, classifyPatch, getChangedNodeIds } from './patch';
+
+/** Nodes touched by the latest applied patch (for visual feedback). */
+export interface GraphChange {
+  /** Version produced by the patch. */
+  readonly version: number;
+  /** Ids of new or meaningfully changed nodes. */
+  readonly nodeIds: ReadonlySet<string>;
+}
 
 /** Webview-side state derived from host messages. */
 export interface GraphChannelState {
@@ -11,6 +20,12 @@ export interface GraphChannelState {
   readonly status: AnalysisState;
   /** Error text when `status` is `error`. */
   readonly errorMessage: string | null;
+  /** Incremented on every full snapshot; the view resets its state when it changes. */
+  readonly sessionId: number;
+  /** `true` when a patch was missed and a full resync must be requested. */
+  readonly outOfSync: boolean;
+  /** Latest applied patch, or `null` right after a full snapshot. */
+  readonly lastChange: GraphChange | null;
 }
 
 /** Counters displayed in the status bar. */
@@ -26,6 +41,9 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   snapshot: null,
   status: 'analyzing',
   errorMessage: null,
+  sessionId: 0,
+  outOfSync: false,
+  lastChange: null,
 };
 
 /** Fallback text when the host reports an error without a message. */
@@ -33,9 +51,6 @@ const UNKNOWN_ERROR_MESSAGE = 'Unknown error';
 
 /**
  * Applies a host message to the channel state.
- *
- * @remarks `graph/patch` is applied incrementally in Phase 7; until then the
- * host only sends full snapshots, so patches leave the state unchanged.
  *
  * @param state - Current state.
  * @param message - Validated host message.
@@ -47,7 +62,14 @@ export function reduceHostMessage(
 ): GraphChannelState {
   switch (message.type) {
     case 'graph/init':
-      return { snapshot: message.graph, status: 'ready', errorMessage: null };
+      return {
+        snapshot: message.graph,
+        status: 'ready',
+        errorMessage: null,
+        sessionId: state.sessionId + 1,
+        outOfSync: false,
+        lastChange: null,
+      };
     case 'status':
       return {
         ...state,
@@ -55,7 +77,36 @@ export function reduceHostMessage(
         errorMessage: message.state === 'error' ? (message.message ?? UNKNOWN_ERROR_MESSAGE) : null,
       };
     case 'graph/patch':
+      return reducePatch(state, message.patch);
+  }
+}
+
+/**
+ * Applies a patch if it directly follows the current snapshot; flags a resync
+ * if patches were missed; ignores stale patches.
+ *
+ * @param state - Current state.
+ * @param patch - Incoming patch.
+ * @returns The next state.
+ */
+function reducePatch(
+  state: GraphChannelState,
+  patch: Parameters<typeof applyPatch>[1],
+): GraphChannelState {
+  if (state.snapshot === null || state.outOfSync) {
+    return state;
+  }
+  switch (classifyPatch(state.snapshot, patch)) {
+    case 'stale':
       return state;
+    case 'gap':
+      return { ...state, outOfSync: true };
+    case 'next':
+      return {
+        ...state,
+        snapshot: applyPatch(state.snapshot, patch),
+        lastChange: { version: patch.version, nodeIds: getChangedNodeIds(state.snapshot, patch) },
+      };
   }
 }
 

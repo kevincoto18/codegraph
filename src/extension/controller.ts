@@ -8,12 +8,15 @@ import { GraphService } from './graphService';
 import { openFileAtLine } from './navigation';
 import { CodeGraphPanel } from './panel';
 import { VsCodeWorkspaceReader } from './workspaceReader';
+import { WorkspaceSync } from './workspaceSync';
 
 /** Analysis resources bound to one workspace folder. */
 interface AnalysisSession {
   readonly folder: vscode.WorkspaceFolder;
   readonly reader: VsCodeWorkspaceReader;
   readonly service: GraphService;
+  /** Live sync of workspace changes; runs while the session exists. */
+  readonly sync: WorkspaceSync;
 }
 
 /**
@@ -28,7 +31,8 @@ function describeError(error: unknown): string {
 
 /**
  * Entry point of CodeGraph features: opens the panel, answers webview
- * requests and keeps one analysis session per workspace folder.
+ * requests, keeps one analysis session per workspace folder and pushes live
+ * graph patches to the panel.
  */
 export class CodeGraphController implements vscode.Disposable {
   private panel: CodeGraphPanel | undefined;
@@ -77,6 +81,7 @@ export class CodeGraphController implements vscode.Disposable {
   public dispose(): void {
     this.panel?.dispose();
     this.panel = undefined;
+    this.session?.sync.dispose();
     this.session = undefined;
   }
 
@@ -88,8 +93,19 @@ export class CodeGraphController implements vscode.Disposable {
    */
   private ensureSession(folder: vscode.WorkspaceFolder): AnalysisSession {
     if (this.session?.folder.uri.toString() !== folder.uri.toString()) {
+      this.session?.sync.dispose();
       const reader = new VsCodeWorkspaceReader(folder.uri);
-      this.session = { folder, reader, service: new GraphService(reader, this.logger) };
+      const service = new GraphService(reader, this.logger);
+      const sync = new WorkspaceSync(
+        folder.uri,
+        reader,
+        service,
+        (patch) => {
+          void this.post({ type: 'graph/patch', patch });
+        },
+        this.logger,
+      );
+      this.session = { folder, reader, service, sync };
       this.logger.info(`Analysis session created for "${folder.name}".`);
     }
     return this.session;

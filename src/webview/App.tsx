@@ -6,12 +6,14 @@ import { useGraphChannel } from './useGraphChannel';
 
 /**
  * Root component of the CodeGraph webview. Shows a placeholder until the
- * first graph arrives, then the graph view (remounted on every new snapshot).
+ * first graph arrives, then the graph view. Live patches update the view in
+ * place; only a full snapshot (refresh or resync) remounts it.
  *
  * @returns The webview root element.
  */
 export function App(): JSX.Element {
-  const { snapshot, status, errorMessage, refresh, navigate } = useGraphChannel();
+  const { snapshot, lastChange, sessionId, status, errorMessage, refresh, navigate } =
+    useGraphChannel();
 
   return (
     <div className="cg-app">
@@ -31,8 +33,9 @@ export function App(): JSX.Element {
         </>
       ) : (
         <GraphView
-          key={snapshot.version}
+          key={sessionId}
           snapshot={snapshot}
+          lastChange={lastChange}
           status={status}
           errorMessage={errorMessage}
           onRefresh={refresh}

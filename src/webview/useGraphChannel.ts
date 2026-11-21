@@ -17,8 +17,9 @@ export interface GraphChannel extends GraphChannelState {
 }
 
 /**
- * Subscribes to host messages, performs the `ready` handshake on mount and
- * exposes the graph state plus host actions.
+ * Subscribes to host messages, performs the `ready` handshake on mount,
+ * requests a resync when patches are missed and exposes the graph state plus
+ * host actions.
  *
  * @returns The channel state and actions.
  */
@@ -30,6 +31,14 @@ export function useGraphChannel(): GraphChannel {
     postToHost({ type: 'ready' });
     return unsubscribe;
   }, []);
+
+  // A missed patch makes the local graph unreliable: ask the host to resend
+  // its current snapshot (`ready` returns it without rescanning).
+  useEffect(() => {
+    if (state.outOfSync) {
+      postToHost({ type: 'ready' });
+    }
+  }, [state.outOfSync]);
 
   const refresh = useCallback(() => {
     postToHost({ type: 'refresh' });
