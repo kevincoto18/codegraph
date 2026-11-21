@@ -5,6 +5,9 @@
  *
  * @remarks Pure and deterministic: the same input always produces the same
  * snapshot (files are processed in path order), which keeps diffs minimal.
+ * `linkGraph` rebuilds everything and is the reference implementation;
+ * `IncrementalLinker` reuses the helpers exported here to update only the
+ * files affected by a change.
  */
 import { posix } from 'node:path';
 
@@ -31,13 +34,13 @@ interface ResolvedBinding {
 }
 
 /** A parsed function together with its graph id. */
-interface IndexedFunction {
+export interface IndexedFunction {
   readonly id: string;
   readonly parsed: ParsedFunction;
 }
 
 /** Lookup tables for one file, built once and shared by every resolution step. */
-interface FileIndex {
+export interface FileIndex {
   readonly parsed: ParsedFile;
   readonly fileId: string;
   readonly functions: readonly IndexedFunction[];
@@ -54,7 +57,7 @@ interface FileIndex {
 }
 
 /** Indexes of every file in the workspace, by path. */
-type WorkspaceIndex = ReadonlyMap<RelPath, FileIndex>;
+export type WorkspaceIndex = ReadonlyMap<RelPath, FileIndex>;
 
 /**
  * Builds the complete graph of a workspace.
@@ -95,7 +98,7 @@ export function linkGraph(parsedFiles: Iterable<ParsedFile>, version: number): G
  * @param knownFiles - Paths of every analyzable file (for import resolution).
  * @returns The file index.
  */
-function indexFile(parsed: ParsedFile, knownFiles: ReadonlySet<RelPath>): FileIndex {
+export function indexFile(parsed: ParsedFile, knownFiles: ReadonlySet<RelPath>): FileIndex {
   const functions = assignFunctionIds(parsed);
   const functionsByName = new Map<string, string>();
   const methodsByClass = new Map<string, Map<string, string>>();
@@ -181,7 +184,7 @@ function resolveFileImports(
  * @param fileIndex - Index of the file.
  * @returns The file node.
  */
-function createFileNode(fileIndex: FileIndex): FileGraphNode {
+export function createFileNode(fileIndex: FileIndex): FileGraphNode {
   return {
     id: fileIndex.fileId,
     kind: 'file',
@@ -199,7 +202,7 @@ function createFileNode(fileIndex: FileIndex): FileGraphNode {
  * @param fileIndex - Index of the containing file.
  * @returns The function node.
  */
-function createFunctionNode(fn: IndexedFunction, fileIndex: FileIndex): FunctionGraphNode {
+export function createFunctionNode(fn: IndexedFunction, fileIndex: FileIndex): FunctionGraphNode {
   return {
     id: fn.id,
     kind: 'function',
@@ -224,7 +227,7 @@ function createFunctionNode(fn: IndexedFunction, fileIndex: FileIndex): Function
  * @param fileIndex - Index of the importing file.
  * @param edges - Edge accumulator keyed by id (mutated in place).
  */
-function addImportEdges(fileIndex: FileIndex, edges: Map<string, GraphEdge>): void {
+export function addImportEdges(fileIndex: FileIndex, edges: Map<string, GraphEdge>): void {
   for (const [targetFile, line] of fileIndex.resolvedImports) {
     const target = createFileId(targetFile);
     if (target !== fileIndex.fileId) {
@@ -240,7 +243,7 @@ function addImportEdges(fileIndex: FileIndex, edges: Map<string, GraphEdge>): vo
  * @param workspace - Indexes of every file.
  * @param edges - Edge accumulator keyed by id (mutated in place).
  */
-function addCallEdges(
+export function addCallEdges(
   fileIndex: FileIndex,
   workspace: WorkspaceIndex,
   edges: Map<string, GraphEdge>,

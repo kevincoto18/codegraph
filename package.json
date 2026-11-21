@@ -94,6 +94,7 @@
     "eslint-plugin-jsdoc": "^65.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
+    "ignore": "^7.0.16",
     "playwright-core": "^1.65.1",
     "prettier": "^3.10.1",
     "react": "^19.3.1",

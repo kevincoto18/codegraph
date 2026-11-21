@@ -41,7 +41,7 @@ describe('isHostToWebviewMessage', () => {
   };
 
   it.each([
-    [{ type: 'graph/init', graph: { version: 1, nodes: [], edges: [] } }],
+    [{ type: 'graph/init', version: 1, index: 0, last: true, chunk: { files: [], edges: [] } }],
     [{ type: 'graph/patch', patch }],
     [{ type: 'status', state: 'analyzing' }],
     [{ type: 'status', state: 'error', message: 'boom' }],
@@ -53,7 +53,10 @@ describe('isHostToWebviewMessage', () => {
   });
 
   it.each([
-    [{ type: 'graph/init', graph: { version: 0, nodes: [], edges: [] } }],
+    [{ type: 'graph/init', version: 0, index: 0, last: true, chunk: { files: [], edges: [] } }],
+    [{ type: 'graph/init', version: 1, index: -1, last: true, chunk: { files: [], edges: [] } }],
+    [{ type: 'graph/init', version: 1, index: 0, last: 'yes', chunk: { files: [], edges: [] } }],
+    [{ type: 'graph/init', version: 1, index: 0, last: true, chunk: { files: [] } }],
     [{ type: 'graph/patch', patch: { version: 2 } }],
     [{ type: 'status', state: 'done' }],
     [{ type: 'status', state: 'error', message: 42 }],

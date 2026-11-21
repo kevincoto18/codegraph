@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 
 import type { GraphPatch, RelPath } from '../shared';
-import { SOURCE_GLOB, isAnalyzableFile } from './analyzer/config';
+import { isAnalyzableFile } from './analyzer/config';
 import type { FileChangeKind } from './changeScheduler';
 import { ChangeScheduler } from './changeScheduler';
 import type { GraphService } from './graphService';
@@ -36,6 +36,8 @@ function describeError(error: unknown): string {
 export class WorkspaceSync implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly scheduler: ChangeScheduler;
+  /** Changes coalesced into one batch share a patch; it is forwarded once. */
+  private lastForwardedVersion = 0;
 
   /**
    * Starts listening to the workspace.
@@ -68,13 +70,13 @@ export class WorkspaceSync implements vscode.Disposable {
         void this.handleCreated(uri);
       }),
       watcher.onDidChange((uri) => {
-        this.enqueue(uri, 'update');
+        void this.enqueueUpdate(uri);
       }),
       watcher.onDidDelete((uri) => {
         this.handleDeleted(uri);
       }),
       vscode.workspace.onDidSaveTextDocument((document) => {
-        this.enqueue(document.uri, 'update');
+        void this.enqueueUpdate(document.uri);
       }),
       new vscode.Disposable(() => {
         this.scheduler.dispose();
@@ -90,15 +92,22 @@ export class WorkspaceSync implements vscode.Disposable {
   }
 
   /**
-   * Schedules a change for an analyzable file.
+   * Schedules an update for a file of the graph, or for a new file that is
+   * not excluded (`files.exclude`, `.gitignore`).
    *
    * @param uri - URI reported by VS Code.
-   * @param kind - What happened to the file.
    */
-  private enqueue(uri: vscode.Uri, kind: FileChangeKind): void {
+  private async enqueueUpdate(uri: vscode.Uri): Promise<void> {
     const filePath = this.reader.toRelPath(uri);
-    if (filePath !== null && isAnalyzableFile(filePath)) {
-      this.scheduler.schedule(filePath, kind);
+    if (filePath === null || !isAnalyzableFile(filePath)) {
+      return;
+    }
+    try {
+      if (this.service.hasFile(filePath) || (await this.reader.isIncluded(filePath))) {
+        this.scheduler.schedule(filePath, 'update');
+      }
+    } catch (error) {
+      this.logger.error(`Could not check "${filePath}": ${describeError(error)}`);
     }
   }
 
@@ -114,7 +123,7 @@ export class WorkspaceSync implements vscode.Disposable {
       return;
     }
     if (isAnalyzableFile(createdPath)) {
-      this.scheduler.schedule(createdPath, 'update');
+      await this.enqueueUpdate(uri);
       return;
     }
     try {
@@ -122,9 +131,8 @@ export class WorkspaceSync implements vscode.Disposable {
       if (stat.type !== vscode.FileType.Directory) {
         return;
       }
-      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(uri, SOURCE_GLOB));
-      for (const file of files) {
-        this.enqueue(file, 'update');
+      for (const filePath of await this.reader.listFilesIn(uri)) {
+        this.scheduler.schedule(filePath, 'update');
       }
     } catch (error) {
       this.logger.error(`Could not inspect created path "${createdPath}": ${describeError(error)}`);
@@ -159,10 +167,7 @@ export class WorkspaceSync implements vscode.Disposable {
    */
   private findKnownFilesUnder(folderPath: RelPath): RelPath[] {
     const prefix = `${folderPath}/`;
-    return this.service
-      .getSnapshot()
-      .nodes.filter((node) => node.kind === 'file' && node.filePath.startsWith(prefix))
-      .map((node) => node.filePath);
+    return this.service.getFilePaths().filter((filePath) => filePath.startsWith(prefix));
   }
 
   /**
@@ -172,7 +177,7 @@ export class WorkspaceSync implements vscode.Disposable {
    * @param kind - What happened to the file.
    */
   private async applyChange(filePath: RelPath, kind: FileChangeKind): Promise<void> {
-    if (this.service.getSnapshot().version === 0) {
+    if (this.service.version === 0) {
       return; // The initial scan has not run yet; it will pick the change up.
     }
     try {
@@ -180,8 +185,11 @@ export class WorkspaceSync implements vscode.Disposable {
         kind === 'remove'
           ? await this.service.removeFile(filePath)
           : await this.service.updateFile(filePath);
-      if (patch !== null) {
-        this.logger.info(`Graph updated for "${filePath}" (${kind}, v${String(patch.version)}).`);
+      if (patch !== null && patch.version > this.lastForwardedVersion) {
+        this.lastForwardedVersion = patch.version;
+        this.logger.info(
+          `Graph updated (v${String(patch.version)}, batch including ${kind} of "${filePath}").`,
+        );
         this.onPatch(patch);
       }
     } catch (error) {

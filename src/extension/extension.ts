@@ -12,6 +12,9 @@ const PERFORMANCE_REPORT_COMMAND = 'codegraph.showPerformanceReport';
 /** Name of the output channel used for all extension logs. */
 const LOG_CHANNEL_NAME = 'CodeGraph';
 
+/** Controller of the running extension, released in {@link deactivate}. */
+let activeController: CodeGraphController | undefined;
+
 /**
  * Entry point called by VS Code when the extension is activated.
  *
@@ -24,7 +27,13 @@ const LOG_CHANNEL_NAME = 'CodeGraph';
  */
 export function activate(context: vscode.ExtensionContext): void {
   const logger = vscode.window.createOutputChannel(LOG_CHANNEL_NAME, { log: true });
-  const controller = new CodeGraphController(context.extensionUri, logger);
+  const version: unknown = (context.extension.packageJSON as { version?: unknown }).version;
+  const extensionVersion = typeof version === 'string' ? version : '0';
+  const controller = new CodeGraphController(context.extensionUri, logger, {
+    storageUri: context.storageUri,
+    extensionVersion,
+  });
+  activeController = controller;
 
   context.subscriptions.push(
     logger,
@@ -39,4 +48,16 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   logger.info('CodeGraph activated.');
+}
+
+/**
+ * Called by VS Code when the extension is deactivated: waits until the parse
+ * cache has been persisted, so the next session starts warm.
+ *
+ * @returns Resolves once the session is released.
+ */
+export async function deactivate(): Promise<void> {
+  const controller = activeController;
+  activeController = undefined;
+  await controller?.closeSession();
 }

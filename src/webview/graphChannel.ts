@@ -12,9 +12,18 @@ export interface GraphChange {
   readonly nodeIds: ReadonlySet<string>;
 }
 
+/**
+ * Actions handled by {@link reduceHostMessage}: host messages, except the
+ * chunked `graph/init` parts, which are replaced by one `graph/loaded` action
+ * once the whole snapshot has been reassembled.
+ */
+export type GraphChannelAction =
+  | Exclude<HostToWebview, { readonly type: 'graph/init' }>
+  | { readonly type: 'graph/loaded'; readonly graph: GraphSnapshot };
+
 /** Webview-side state derived from host messages. */
 export interface GraphChannelState {
-  /** Latest graph, or `null` before the first `graph/init`. */
+  /** Latest graph, or `null` before the first full snapshot. */
   readonly snapshot: GraphSnapshot | null;
   /** Current analysis status. */
   readonly status: AnalysisState;
@@ -53,18 +62,18 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
 const UNKNOWN_ERROR_MESSAGE = 'Unknown error';
 
 /**
- * Applies a host message to the channel state.
+ * Applies a host action to the channel state.
  *
  * @param state - Current state.
- * @param message - Validated host message.
+ * @param message - Validated host message or reassembled snapshot.
  * @returns The next state.
  */
 export function reduceHostMessage(
   state: GraphChannelState,
-  message: HostToWebview,
+  message: GraphChannelAction,
 ): GraphChannelState {
   switch (message.type) {
-    case 'graph/init':
+    case 'graph/loaded':
       return {
         ...state,
         snapshot: message.graph,

@@ -7,7 +7,7 @@
 - Files are containers; their functions are nested nodes.
 - Dashed edges are imports between files; solid edges are calls between functions.
 - Click any node to jump to the exact line in the editor.
-- Save a file and only that file is re-analyzed; the graph updates in place.
+- Save a file and only that file (and the files linked to it) is re-analyzed; the graph updates in place.
 
 ---
 
@@ -16,7 +16,7 @@
 | Feature           | Details                                                                                                                                                                              |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Static analysis   | TypeScript Compiler API (`ts.createSourceFile`), no type checker, no LLM                                                                                                             |
-| Languages         | `.ts`, `.tsx`, `.js`, `.jsx` (`.d.ts` skipped); `node_modules`, `dist`, `build`, `.git` ignored                                                                                      |
+| Languages         | `.ts`, `.tsx`, `.js`, `.jsx` (`.d.ts` skipped); `node_modules`, `dist`, `build`, `.git`, `files.exclude` and `.gitignore`d files ignored                                             |
 | Imports           | ES default / named (aliased) / namespace / side-effect, re-exports, `require`, `import x = require()`                                                                                |
 | Functions         | Declarations, arrow & function expressions assigned to variables, class methods, constructors, arrow class properties, anonymous default exports, CommonJS exported functions        |
 | Calls             | `foo()`, `ns.foo()`, `this.foo()`, `Class.staticMethod()` — local or imported (ES and CommonJS)                                                                                      |
@@ -24,9 +24,9 @@
 | Large projects    | Auto-collapse above 400 functions, linear layered layout (tall ranks wrapped into sub-columns), level of detail when zoomed out, auto-hidden minimap, only visible elements rendered |
 | Collapse / expand | Per file or all at once; calls of collapsed files are merged into `×n` edges                                                                                                         |
 | Search            | By file path or function name; matches highlighted, Enter zooms to them, Escape clears                                                                                               |
-| Live updates      | Saves, external edits, created/deleted files and folders → debounced per file → incremental patch                                                                                    |
+| Live updates      | Saves, external edits, created/deleted files and folders → debounced → queued changes batched → incremental relink → one patch                                                       |
 | Layout stability  | Live patches keep file positions (including manual drags), collapsed files, search and viewport                                                                                      |
-| Cache             | Per-file SHA-256 content hash; unchanged files are never re-parsed                                                                                                                   |
+| Cache             | Per-file SHA-256 hash, persisted between sessions; files with unchanged mtime/size are not even read                                                                                 |
 
 ## Requirements
 
@@ -77,8 +77,8 @@ flowchart LR
     SYNC[WorkspaceSync<br/>save · watcher · debounce] --> SVC
     SVC --> CACHE[AnalysisCache<br/>SHA-256]
     CACHE --> PARSER[parser<br/>TS Compiler API]
-    SVC --> LINKER[linker + resolver]
-    LINKER --> DIFF[diff → GraphPatch]
+    CACHE --> STORE[(cache file<br/>v8 serialized)]
+    SVC --> LINKER[incremental linker<br/>+ resolver → GraphPatch]
     CTRL --> PANEL[CodeGraphPanel<br/>CSP + nonce]
   end
   subgraph Webview["Webview (React)"]
@@ -86,7 +86,7 @@ flowchart LR
     CHANNEL[useGraphChannel<br/>reducer + applyPatch] --> VIEW[GraphView<br/>collapse · search · layout]
     VIEW --> FLOW[React Flow + layered layout]
   end
-  PANEL <-- "postMessage<br/>ready · graph/init · graph/patch · status · navigate · refresh" --> CHANNEL
+  PANEL <-- "postMessage<br/>ready · graph/init (compact, chunked) · graph/patch · status · navigate · refresh" --> CHANNEL
 ```
 
 ### Project layout
@@ -95,8 +95,9 @@ flowchart LR
 src/
 ├─ shared/        Environment-agnostic contract: graph model, ids, message protocol + guards
 ├─ extension/     VS Code host
-│  ├─ analyzer/   Pure analysis: config, parser, resolver, linker, diff
-│  ├─ cache.ts, graphService.ts, changeScheduler.ts   Pure orchestration (unit-tested)
+│  ├─ analyzer/   Pure analysis: config, parser, resolver, linker, incremental linker, diff
+│  ├─ cache.ts, cacheStore.ts, exclusions.ts, graphService.ts, changeScheduler.ts   Pure orchestration (unit-tested)
+│  ├─ analysis.ts Entry of the analyzer bundle (`dist/analysis.js`), loaded on first use
 │  └─ controller.ts, panel.ts, workspaceSync.ts, workspaceReader.ts, navigation.ts   VS Code adapters
 └─ webview/       React app: channel, flow conversion, collapse, search, layout, patches, components
 samples/demo-project/   Mixed TS/JS project covering every supported construct
@@ -112,23 +113,37 @@ Defined in [`src/shared/types.ts`](src/shared/types.ts): `GraphNode`
 (`file` | `function`, with `filePath` and 1-based `line`), `GraphEdge`
 (`import` | `call`), `GraphSnapshot` and `GraphPatch`. Ids are stable and never
 contain line numbers (`src/a.ts`, `src/a.ts#Class.method`), so editing code
-above a function does not recreate its node.
+above a function does not recreate its node. Full graphs travel to the webview
+in a compact wire format ([`src/shared/wire.ts`](src/shared/wire.ts)): file
+paths are sent once, ids are derived and edges are node indexes, split into
+chunks.
+
+### Performance design
+
+- **Instant activation**: the analyzer and the TypeScript compiler it embeds
+  live in a separate bundle loaded the first time a graph is opened.
+- **Warm starts**: the parse cache is saved in the workspace storage (V8
+  serialization) and reused when files keep their modification time and size.
+- **Cheap saves**: queued changes are applied as one batch, and only the
+  changed files, the files whose imports may now resolve differently and the
+  importers of changed files are re-linked.
 
 ## Scripts
 
-| Script                                      | Purpose                                                     |
-| ------------------------------------------- | ----------------------------------------------------------- |
-| `npm run build`                             | Bundle the extension (esbuild) and the webview (Vite)       |
-| `npm run watch:extension` / `watch:webview` | Rebuild on change                                           |
-| `npm test` / `npm run test:watch`           | Unit and integration tests (Vitest)                         |
-| `npm run typecheck`                         | Type-check host and webview projects                        |
-| `npm run lint`                              | ESLint (strict type-checked, TSDoc required), zero warnings |
-| `npm run format` / `format:check`           | Prettier                                                    |
+| Script                                      | Purpose                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------ |
+| `npm run build`                             | Bundle the extension and analyzer (esbuild) and the webview (Vite) |
+| `npm run watch:extension` / `watch:webview` | Rebuild on change                                                  |
+| `npm test` / `npm run test:watch`           | Unit and integration tests (Vitest)                                |
+| `npm run typecheck`                         | Type-check host and webview projects                               |
+| `npm run lint`                              | ESLint (strict type-checked, TSDoc required), zero warnings        |
+| `npm run format` / `format:check`           | Prettier                                                           |
 
 ## Testing
 
-`npm test` runs ~190 tests: parser, resolver, linker, diff, cache, graph
-service (in-memory workspace), change scheduler, webview HTML/CSP, and every
+`npm test` runs ~300 tests: parser, resolver, linker (incremental linking is
+checked against a full relink on random workspaces), diff, cache and its
+persistence, exclusions, wire format, graph service (in-memory workspace), change scheduler, webview HTML/CSP, and every
 pure webview module (flow conversion, collapse, search, layout, patches).
 `src/extension/demoProject.test.ts` analyzes `samples/demo-project` end to end
 and asserts the complete expected graph.
@@ -140,6 +155,7 @@ and asserts the complete expected graph.
 - Calls on arbitrary objects (`obj.method()`, `a.b.c()`, `new X().m()`) are not resolved.
 - Nested functions are not nodes; their calls are attributed to the enclosing function.
 - Only the **first workspace folder** is analyzed; up to 5000 files.
+- Changes to `files.exclude` or `.gitignore` apply on the next **Refresh**; a nested `.gitignore` cannot re-include files ignored by a parent one.
 - Collapse/expand and **Re-layout** recompute positions, discarding manual drags.
 - TypeScript is pinned to **6.0.x**: TypeScript 7 (native port) does not expose the classic JS Compiler API.
 

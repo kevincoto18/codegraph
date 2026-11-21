@@ -73,4 +73,26 @@ describe('AnalysisCache', () => {
     cache.clear();
     expect(cache.size).toBe(0);
   });
+
+  it('tracks file stamps for freshness checks', () => {
+    const cache = new AnalysisCache();
+    cache.update('a.ts', 'const a = 1;', { mtime: 1, size: 12 });
+    expect(cache.isFresh('a.ts', { mtime: 1, size: 12 })).toBe(true);
+    expect(cache.isFresh('a.ts', { mtime: 2, size: 12 })).toBe(false);
+    expect(cache.isFresh('a.ts', undefined)).toBe(false);
+    // Same content, new stamp: no re-parse but the stamp is refreshed.
+    expect(cache.update('a.ts', 'const a = 1;', { mtime: 2, size: 12 }).changed).toBe(false);
+    expect(cache.isFresh('a.ts', { mtime: 2, size: 12 })).toBe(true);
+  });
+
+  it('exports, imports and retains entries', () => {
+    const cache = new AnalysisCache();
+    cache.update('a.ts', '');
+    cache.update('b.ts', '');
+    const restored = new AnalysisCache();
+    restored.importEntries(cache.exportEntries());
+    expect(restored.size).toBe(2);
+    restored.retain(new Set(['b.ts']));
+    expect(restored.getAll().map((file) => file.filePath)).toEqual(['b.ts']);
+  });
 });

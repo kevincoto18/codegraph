@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EXCLUDE_GLOB, SOURCE_GLOB, isAnalyzableFile } from './config';
+import { SOURCE_GLOB, isAnalyzableFile } from './config';
 
 describe('isAnalyzableFile', () => {
   it.each(['src/a.ts', 'src/b.tsx', 'lib/c.js', 'ui/d.jsx', 'root.ts'])('accepts %s', (path) => {
@@ -27,8 +27,7 @@ describe('isAnalyzableFile', () => {
 });
 
 describe('globs', () => {
-  it('builds the findFiles include and exclude patterns', () => {
+  it('builds the findFiles include pattern', () => {
     expect(SOURCE_GLOB).toBe('**/*.{ts,tsx,js,jsx}');
-    expect(EXCLUDE_GLOB).toBe('**/{node_modules,dist,build,.git}/**');
   });
 });

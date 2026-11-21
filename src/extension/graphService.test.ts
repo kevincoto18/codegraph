@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { GraphPatch, GraphSnapshot, RelPath } from '../shared';
 import { parseSource } from './analyzer/parser';
 import type { ParsedFile } from './analyzer/types';
+import type { CacheEntry, FileStamp } from './cache';
 import { AnalysisCache } from './cache';
+import type { CacheStore } from './cacheStore';
 import type { ServiceLogger, WorkspaceReader } from './graphService';
 import { GraphService } from './graphService';
 
@@ -265,9 +267,10 @@ describe('GraphService.updateFile', () => {
     ).toBe(true);
   });
 
-  it('serializes concurrent updates into consecutive versions', async () => {
-    const { service, reader } = setup();
+  it('coalesces changes queued together into a single patch', async () => {
+    const { service, reader, parsedPaths } = setup();
     await service.initialize();
+    parsedPaths.length = 0;
 
     reader.files.set(
       'src/b.ts',
@@ -276,10 +279,32 @@ describe('GraphService.updateFile', () => {
     const first = service.updateFile('src/b.ts');
     reader.files.set('src/a.ts', 'export function main(): void {}');
     const second = service.updateFile('src/a.ts');
+    const third = service.updateFile('src/b.ts'); // duplicate in the same batch
 
-    const [p1, p2] = await Promise.all([first, second]);
-    expect([p1?.version, p2?.version]).toEqual([2, 3]);
+    const [p1, p2, p3] = await Promise.all([first, second, third]);
+    expect(p1).toBe(p2);
+    expect(p1).toBe(p3);
+    expect(p1?.version).toBe(2);
+    expect(parsedPaths.sort()).toEqual(['src/a.ts', 'src/b.ts']);
     expect(edgeIds(service.getSnapshot())).toEqual([]);
+    expect(service.performance.get('update.batch')?.last).toBe(2);
+  });
+
+  it('applies changes submitted during a batch in the next batch', async () => {
+    const { service, reader } = setup();
+    await service.initialize();
+
+    reader.files.set(
+      'src/b.ts',
+      'export function greet(): void {}\nexport function one(): void {}',
+    );
+    const first = service.updateFile('src/b.ts');
+    const firstPatch = await first;
+    const second = service.removeFile('src/a.ts');
+    const secondPatch = await second;
+    expect([firstPatch?.version, secondPatch?.version]).toEqual([2, 3]);
+    expect(service.hasFile('src/a.ts')).toBe(false);
+    expect(service.getFilePaths()).toEqual(['src/b.ts']);
   });
 });
 
@@ -301,5 +326,118 @@ describe('GraphService.removeFile', () => {
     const { service } = setup();
     await service.initialize();
     expect(await service.removeFile('src/unknown.ts')).toBeNull();
+  });
+});
+
+/** Reader that also reports file stamps and counts reads. */
+class StampedReader extends InMemoryReader {
+  public readonly stamps = new Map<RelPath, FileStamp>();
+  public readonly reads: RelPath[] = [];
+
+  /**
+   * Reads a file and records the read.
+   *
+   * @param filePath - File path.
+   * @returns File content.
+   */
+  public override readFile(filePath: RelPath): Promise<string> {
+    this.reads.push(filePath);
+    return super.readFile(filePath);
+  }
+
+  /**
+   * Returns the stamp of a file (mtime 1 unless set).
+   *
+   * @param filePath - File path.
+   * @returns The stamp.
+   */
+  public stat(filePath: RelPath): Promise<FileStamp> {
+    const size = this.files.get(filePath)?.length ?? 0;
+    return Promise.resolve(this.stamps.get(filePath) ?? { mtime: 1, size });
+  }
+}
+
+/** Store that keeps entries in memory. */
+class MemoryStore implements CacheStore {
+  public entries: CacheEntry[] = [];
+  public saves = 0;
+
+  /**
+   * Returns the saved entries.
+   *
+   * @returns Saved entries.
+   */
+  public load(): Promise<CacheEntry[]> {
+    return Promise.resolve([...this.entries]);
+  }
+
+  /**
+   * Saves entries.
+   *
+   * @param entries - Entries to save.
+   */
+  public save(entries: readonly CacheEntry[]): Promise<void> {
+    this.entries = [...entries];
+    this.saves += 1;
+    return Promise.resolve();
+  }
+}
+
+describe('GraphService cache reuse', () => {
+  it('does not read files whose stamp did not change', async () => {
+    const reader = new StampedReader(WORKSPACE);
+    const service = new GraphService(reader, new RecordingLogger(), new AnalysisCache());
+    await service.initialize();
+    expect(reader.reads.sort()).toEqual(['src/a.ts', 'src/b.ts']);
+
+    reader.reads.length = 0;
+    reader.stamps.set('src/b.ts', { mtime: 2, size: 1 });
+    const snapshot = await service.initialize();
+    expect(reader.reads).toEqual(['src/b.ts']);
+    expect(snapshot.nodes).toHaveLength(4);
+    expect(service.performance.get('scan.reused')?.last).toBe(1);
+  });
+
+  it('restores the persisted cache in a new session without reading files', async () => {
+    const store = new MemoryStore();
+    const first = new GraphService(new StampedReader(WORKSPACE), new RecordingLogger(), undefined, {
+      store,
+    });
+    const expected = await first.initialize();
+    await first.dispose();
+    expect(store.entries.map((entry) => entry.filePath).sort()).toEqual(['src/a.ts', 'src/b.ts']);
+
+    const reader = new StampedReader(WORKSPACE);
+    const logger = new RecordingLogger();
+    const second = new GraphService(reader, logger, undefined, { store });
+    const snapshot = await second.initialize();
+    expect(reader.reads).toEqual([]);
+    expect(snapshot.nodes).toEqual(expected.nodes);
+    expect(snapshot.edges).toEqual(expected.edges);
+    expect(logger.messages.some((m) => m.message.includes('Loaded 2 cached files'))).toBe(true);
+  });
+
+  it('persists live updates once the burst settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new MemoryStore();
+      const reader = new StampedReader(WORKSPACE);
+      const service = new GraphService(reader, new RecordingLogger(), undefined, {
+        store,
+        persistDelayMs: 100,
+      });
+      await service.initialize();
+      await service.dispose();
+      const savesAfterScan = store.saves;
+
+      reader.files.set('src/b.ts', 'export function welcome(): void {}');
+      await service.updateFile('src/b.ts');
+      expect(store.saves).toBe(savesAfterScan);
+      await vi.advanceTimersByTimeAsync(100);
+      await service.dispose();
+      expect(store.saves).toBe(savesAfterScan + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

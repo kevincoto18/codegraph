@@ -10,8 +10,8 @@ import { join } from 'node:path';
 
 /** Data served to the page for the current scenario. */
 export interface HarnessData {
-  /** JSON of the `graph/init` snapshot. */
-  snapshotJson: string;
+  /** JSON array of the `graph/init` messages that transport the snapshot. */
+  initMessagesJson: string;
 }
 
 /** CSS variables approximating VS Code's default dark theme. */
@@ -39,10 +39,10 @@ const HARNESS_SCRIPT = `
       window.__sent.push(message);
       if (message.type !== 'ready' || window.__initDone) return;
       window.__initDone = true;
-      fetch('/snapshot.json').then((r) => r.json()).then(async (graph) => {
+      fetch('/init.json').then((r) => r.json()).then(async (initMessages) => {
         window.postMessage({ type: 'options', options: { collapseMode: params.get('collapse') || 'always' } }, '*');
         window.__t.initPostedAt = performance.now();
-        window.postMessage({ type: 'graph/init', graph }, '*');
+        for (const message of initMessages) window.postMessage(message, '*');
         while (!document.querySelector('.react-flow__node-file')) await frame();
         await frame();
         window.__t.firstPaint = performance.now() - window.__t.initPostedAt;
@@ -138,7 +138,7 @@ export async function startHarness(
       '/': ['text/html', harnessHtml()],
       '/index.js': ['text/javascript', script],
       '/index.css': ['text/css', style],
-      '/snapshot.json': ['application/json', data.snapshotJson],
+      '/init.json': ['application/json', data.initMessagesJson],
     };
     const route = path === undefined ? undefined : routes[path];
     if (route === undefined) {

@@ -6,6 +6,8 @@
  * must validate a message with the matching guard before using it.
  */
 import type { GraphPatch, GraphSnapshot, RelPath } from './types';
+import type { ChunkLimits, WireGraphChunk } from './wire';
+import { DEFAULT_CHUNK_LIMITS, encodeSnapshot } from './wire';
 
 /** Analysis status reported by the host. */
 export type AnalysisState = 'analyzing' | 'ready' | 'error';
@@ -21,10 +23,47 @@ export interface ViewOptions {
 
 /** Messages sent from the extension host to the webview. */
 export type HostToWebview =
-  | { readonly type: 'graph/init'; readonly graph: GraphSnapshot }
+  | GraphInitMessage
   | { readonly type: 'graph/patch'; readonly patch: GraphPatch }
   | { readonly type: 'status'; readonly state: AnalysisState; readonly message?: string }
   | { readonly type: 'options'; readonly options: ViewOptions };
+
+/**
+ * One part of a full graph. A graph is sent as a sequence of these messages
+ * (`index` 0, 1, …) and the receiver rebuilds it when `last` arrives.
+ */
+export interface GraphInitMessage {
+  readonly type: 'graph/init';
+  /** Version of the snapshot being sent. */
+  readonly version: number;
+  /** 0-based position of this part. */
+  readonly index: number;
+  /** Whether this is the final part. */
+  readonly last: boolean;
+  /** Encoded files and edges of this part. */
+  readonly chunk: WireGraphChunk;
+}
+
+/**
+ * Splits a snapshot into the `graph/init` messages that transport it.
+ *
+ * @param snapshot - Graph to send.
+ * @param limits - Chunk size limits.
+ * @returns The messages, in sending order (at least one).
+ */
+export function createGraphInitMessages(
+  snapshot: GraphSnapshot,
+  limits: ChunkLimits = DEFAULT_CHUNK_LIMITS,
+): GraphInitMessage[] {
+  const chunks = encodeSnapshot(snapshot, limits);
+  return chunks.map((chunk, index) => ({
+    type: 'graph/init',
+    version: snapshot.version,
+    index,
+    last: index === chunks.length - 1,
+    chunk,
+  }));
+}
 
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
@@ -92,18 +131,13 @@ function isMetricSample(value: unknown): value is MetricSample {
 }
 
 /**
- * Shallow structural check of a graph snapshot.
+ * Shallow structural check of an encoded graph chunk.
  *
  * @param value - Value to inspect.
- * @returns `true` if the value has a valid version and node/edge arrays.
+ * @returns `true` if the value has file and edge arrays.
  */
-function isGraphSnapshotLike(value: unknown): value is GraphSnapshot {
-  return (
-    isRecord(value) &&
-    isPositiveInteger(value.version) &&
-    Array.isArray(value.nodes) &&
-    Array.isArray(value.edges)
-  );
+function isGraphChunkLike(value: unknown): value is WireGraphChunk {
+  return isRecord(value) && Array.isArray(value.files) && Array.isArray(value.edges);
 }
 
 /**
@@ -169,7 +203,14 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
   }
   switch (value.type) {
     case 'graph/init':
-      return isGraphSnapshotLike(value.graph);
+      return (
+        isPositiveInteger(value.version) &&
+        typeof value.index === 'number' &&
+        Number.isInteger(value.index) &&
+        value.index >= 0 &&
+        typeof value.last === 'boolean' &&
+        isGraphChunkLike(value.chunk)
+      );
     case 'graph/patch':
       return isGraphPatchLike(value.patch);
     case 'options':

@@ -15,6 +15,7 @@ import { chromium } from 'playwright-core';
 
 import { GraphService } from '../src/extension/graphService';
 import type { GraphPatch, GraphSnapshot, MetricSample } from '../src/shared';
+import { createGraphInitMessages } from '../src/shared';
 import { generateProject } from './lib/generateProject';
 import { MemoryReader, quietLogger, saveReport } from './lib/readers';
 import type { StressSize } from './lib/sizes';
@@ -220,7 +221,7 @@ async function runSize(
 ): Promise<UiResult> {
   console.log(`\n▶ ${size.id}: preparing graph (${formatCount(size.files)} files)…`);
   const { snapshot, patch, functions } = await prepareGraph(size);
-  data.snapshotJson = JSON.stringify(snapshot);
+  data.initMessagesJson = JSON.stringify(createGraphInitMessages(snapshot));
   const files = snapshot.nodes.filter((node) => node.kind === 'file').length;
 
   const page = await browser.newPage({ viewport: VIEWPORT });
@@ -441,7 +442,7 @@ async function main(): Promise<void> {
     throw new Error('Webview bundle not found. Run "npm run build" first.');
   }
   const sizes = parseSizes(readFlag(process.argv.slice(2), 'sizes'), ['S', 'M', 'L']);
-  const data: HarnessData = { snapshotJson: '{}' };
+  const data: HarnessData = { initMessagesJson: '[]' };
   const { server, url } = await startHarness(webviewDist, data);
   const { browser, label } = await launchBrowser();
   console.log(`Browser: ${label}`);

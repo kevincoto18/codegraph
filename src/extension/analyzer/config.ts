@@ -11,9 +11,6 @@ export const EXCLUDED_DIRECTORIES: readonly string[] = ['node_modules', 'dist', 
 /** Glob matching every candidate source file (for `workspace.findFiles`). */
 export const SOURCE_GLOB = `**/*.{${SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1)).join(',')}}`;
 
-/** Glob matching every excluded directory (for `workspace.findFiles`). */
-export const EXCLUDE_GLOB = `**/{${EXCLUDED_DIRECTORIES.join(',')}}/**`;
-
 /** Suffix of TypeScript declaration files, which contain no function bodies. */
 const DECLARATION_FILE_SUFFIX = '.d.ts';
 

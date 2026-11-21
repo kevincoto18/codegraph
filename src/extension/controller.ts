@@ -1,10 +1,21 @@
 /**
  * Coordinates the graph service, the workspace reader and the webview panel.
  */
+import { join } from 'node:path';
+
 import * as vscode from 'vscode';
 
-import type { GraphPatch, HostToWebview, MetricSample, RelPath, WebviewToHost } from '../shared';
-import { GraphService } from './graphService';
+import type {
+  GraphPatch,
+  GraphSnapshot,
+  HostToWebview,
+  MetricSample,
+  RelPath,
+  WebviewToHost,
+} from '../shared';
+import { createGraphInitMessages } from '../shared';
+import { FileCacheStore } from './cacheStore';
+import type { GraphService } from './graphService';
 import { openFileAtLine } from './navigation';
 import { formatPerformanceReport } from './perf';
 import { CodeGraphPanel } from './panel';
@@ -21,6 +32,20 @@ interface AnalysisSession {
   /** Live sync of workspace changes; runs while the session exists. */
   readonly sync: WorkspaceSync;
 }
+
+/** Where and under which version the parse cache is persisted. */
+export interface CacheLocation {
+  /** Workspace-specific storage folder (`ExtensionContext.storageUri`), if any. */
+  readonly storageUri: vscode.Uri | undefined;
+  /** Extension version; a new version discards the persisted cache. */
+  readonly extensionVersion: string;
+}
+
+/** File name of the persisted parse cache inside the storage folder. */
+const CACHE_FILE_NAME = 'parse-cache.bin';
+
+/** Number of progress steps reported during a scan (one every 2%). */
+const PROGRESS_STEPS = 50;
 
 /**
  * Converts an unknown thrown value into a readable message.
@@ -39,7 +64,13 @@ function describeError(error: unknown): string {
  */
 export class CodeGraphController implements vscode.Disposable {
   private panel: CodeGraphPanel | undefined;
+  /** Session being created or ready, keyed by folder URI. */
+  private sessionRequest:
+    { readonly key: string; readonly session: Promise<AnalysisSession> } | undefined;
+  /** Resolved session, for synchronous access. */
   private session: AnalysisSession | undefined;
+  /** Pending session releases (cache persistence). */
+  private closing: Promise<void> = Promise.resolve();
   private settings: CodeGraphSettings = readSettings(
     vscode.workspace.getConfiguration(SETTINGS_SECTION),
   );
@@ -50,10 +81,12 @@ export class CodeGraphController implements vscode.Disposable {
    *
    * @param extensionUri - Root URI of the extension (to locate the webview bundle).
    * @param logger - Extension log channel.
+   * @param cacheLocation - Where the parse cache is persisted.
    */
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly logger: vscode.LogOutputChannel,
+    private readonly cacheLocation: CacheLocation,
   ) {
     this.configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(SETTINGS_SECTION)) {
@@ -72,7 +105,7 @@ export class CodeGraphController implements vscode.Disposable {
       void vscode.window.showWarningMessage('CodeGraph: open a folder to analyze.');
       return;
     }
-    this.ensureSession(folder);
+    void this.ensureSession(folder);
 
     if (this.panel !== undefined) {
       this.panel.reveal();
@@ -95,8 +128,38 @@ export class CodeGraphController implements vscode.Disposable {
     this.configurationListener.dispose();
     this.panel?.dispose();
     this.panel = undefined;
-    this.session?.sync.dispose();
+    void this.closeSession();
+  }
+
+  /**
+   * Releases the session and waits until the parse cache is persisted.
+   * Concurrent calls (dispose, deactivate) share the same pending release.
+   *
+   * @returns Resolves once every pending release has finished.
+   */
+  public closeSession(): Promise<void> {
+    const request = this.sessionRequest;
+    this.sessionRequest = undefined;
     this.session = undefined;
+    if (request !== undefined) {
+      this.closing = this.closing.then(() => this.releaseSession(request.session));
+    }
+    return this.closing;
+  }
+
+  /**
+   * Stops a session's workspace sync and persists its cache.
+   *
+   * @param pending - Session to release (possibly still starting).
+   */
+  private async releaseSession(pending: Promise<AnalysisSession>): Promise<void> {
+    try {
+      const session = await pending;
+      session.sync.dispose();
+      await session.service.dispose();
+    } catch {
+      // The session failed to start: nothing to release.
+    }
   }
 
   /**
@@ -105,24 +168,81 @@ export class CodeGraphController implements vscode.Disposable {
    * @param folder - Workspace folder to analyze.
    * @returns The active session.
    */
-  private ensureSession(folder: vscode.WorkspaceFolder): AnalysisSession {
-    if (this.session?.folder.uri.toString() !== folder.uri.toString()) {
-      this.session?.sync.dispose();
-      const reader = new VsCodeWorkspaceReader(folder.uri);
-      const service = new GraphService(reader, this.logger);
-      const sync = new WorkspaceSync(
-        folder.uri,
-        reader,
-        service,
-        (patch) => {
-          void this.postPatch(patch);
-        },
-        this.logger,
-      );
-      this.session = { folder, reader, service, sync };
-      this.logger.info(`Analysis session created for "${folder.name}".`);
+  private ensureSession(folder: vscode.WorkspaceFolder): Promise<AnalysisSession> {
+    const key = folder.uri.toString();
+    const existing = this.sessionRequest;
+    if (existing?.key === key) {
+      return existing.session;
     }
-    return this.session;
+    void this.closeSession();
+    const session = this.createSession(folder);
+    this.sessionRequest = { key, session };
+    session.then(
+      (created) => {
+        if (this.sessionRequest?.session === session) {
+          this.session = created;
+        }
+      },
+      (error: unknown) => {
+        this.logger.error(`Could not start the analysis: ${describeError(error)}`);
+      },
+    );
+    return session;
+  }
+
+  /**
+   * Creates the analysis resources of a folder. The analyzer (and the
+   * TypeScript compiler it bundles) is loaded on first use, so activating the
+   * extension stays instantaneous.
+   *
+   * @param folder - Workspace folder to analyze.
+   * @returns The new session.
+   */
+  private async createSession(folder: vscode.WorkspaceFolder): Promise<AnalysisSession> {
+    const startedAt = Date.now();
+    const { GraphService: Service, ANALYSIS_CACHE_KEY } = await import('./analysis');
+    const reader = new VsCodeWorkspaceReader(folder.uri);
+    const storageUri = this.cacheLocation.storageUri;
+    const store =
+      storageUri === undefined
+        ? undefined
+        : new FileCacheStore(
+            join(storageUri.fsPath, CACHE_FILE_NAME),
+            `${ANALYSIS_CACHE_KEY}-ext${this.cacheLocation.extensionVersion}`,
+            this.logger,
+          );
+    const service = new Service(
+      reader,
+      this.logger,
+      undefined,
+      store === undefined ? {} : { store },
+    );
+    const sync = new WorkspaceSync(
+      folder.uri,
+      reader,
+      service,
+      (patch) => {
+        void this.postPatch(patch);
+      },
+      this.logger,
+    );
+    this.logger.info(
+      `Analysis session created for "${folder.name}" (analyzer loaded in ${String(Date.now() - startedAt)} ms).`,
+    );
+    return { folder, reader, service, sync };
+  }
+
+  /**
+   * Waits for the current session.
+   *
+   * @returns The session, or `undefined` if none was requested or it failed.
+   */
+  private async currentSession(): Promise<AnalysisSession | undefined> {
+    try {
+      return await this.sessionRequest?.session;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -154,26 +274,76 @@ export class CodeGraphController implements vscode.Disposable {
    * @param forceRescan - Rescan even if a graph is already available.
    */
   private async sendGraph(forceRescan: boolean): Promise<void> {
-    const session = this.session;
+    const session = await this.currentSession();
     if (session === undefined) {
       return;
     }
-    const current = session.service.getSnapshot();
-    if (!forceRescan && current.version > 0) {
-      await this.postMeasured('message.init', { type: 'graph/init', graph: current });
+    if (!forceRescan && session.service.version > 0) {
+      await this.postGraph(session.service.getSnapshot());
       return;
     }
 
     await this.post({ type: 'status', state: 'analyzing' });
     const startedAt = Date.now();
     try {
-      const graph = await session.service.initialize();
+      const graph = await this.scanWithProgress(session.service);
       this.logger.info(`Graph sent to webview after ${String(Date.now() - startedAt)} ms.`);
-      await this.postMeasured('message.init', { type: 'graph/init', graph });
+      await this.postGraph(graph);
     } catch (error) {
       const message = describeError(error);
       this.logger.error(`Graph build failed: ${message}`);
       await this.post({ type: 'status', state: 'error', message });
+    }
+  }
+
+  /**
+   * Scans the workspace showing progress in the VS Code status bar.
+   *
+   * @param service - Service of the current session.
+   * @returns The new snapshot.
+   */
+  private scanWithProgress(service: GraphService): Promise<GraphSnapshot> {
+    return Promise.resolve(
+      vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: 'CodeGraph' },
+        (progress) => {
+          let lastStep = -1;
+          return service.initialize((done, total) => {
+            const step = total === 0 ? PROGRESS_STEPS : Math.floor((done * PROGRESS_STEPS) / total);
+            if (step !== lastStep) {
+              lastStep = step;
+              progress.report({ message: `Analyzing ${String(done)}/${String(total)} files` });
+            }
+          });
+        },
+      ),
+    );
+  }
+
+  /**
+   * Sends a full graph as a sequence of compact `graph/init` parts, recording
+   * their total size and serialization time.
+   *
+   * @param snapshot - Graph to send.
+   */
+  private async postGraph(snapshot: GraphSnapshot): Promise<void> {
+    const tracker = this.session?.service.performance;
+    const messages =
+      tracker === undefined
+        ? createGraphInitMessages(snapshot)
+        : tracker.measure('message.init.encode', () => createGraphInitMessages(snapshot));
+    if (tracker !== undefined && this.panel !== undefined) {
+      const startedAt = performance.now();
+      const bytes = messages.reduce(
+        (total, message) => total + Buffer.byteLength(JSON.stringify(message), 'utf8'),
+        0,
+      );
+      tracker.record('message.init.serialize', performance.now() - startedAt);
+      tracker.record('message.init.size', bytes, 'bytes');
+      tracker.record('message.init.parts', messages.length, 'count');
+    }
+    for (const message of messages) {
+      await this.post(message);
     }
   }
 
@@ -193,7 +363,8 @@ export class CodeGraphController implements vscode.Disposable {
    * @param line - 1-based line.
    */
   private async navigate(filePath: RelPath, line: number): Promise<void> {
-    if (this.session === undefined) {
+    const session = await this.currentSession();
+    if (session === undefined) {
       return;
     }
     const viewColumn =
@@ -201,7 +372,7 @@ export class CodeGraphController implements vscode.Disposable {
         ? vscode.ViewColumn.Beside
         : vscode.ViewColumn.One;
     try {
-      await openFileAtLine(this.session.reader.toUri(filePath), line, viewColumn);
+      await openFileAtLine(session.reader.toUri(filePath), line, viewColumn);
     } catch (error) {
       const message = describeError(error);
       this.logger.error(`Could not open "${filePath}": ${message}`);

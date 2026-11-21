@@ -34,7 +34,7 @@ export function diffSnapshots(previous: GraphSnapshot, next: GraphSnapshot): Gra
  * @param patch - Patch to inspect.
  * @returns `true` if every change list is empty.
  */
-export function isEmptyPatch(patch: GraphPatch): boolean {
+export function isEmptyPatch(patch: Omit<GraphPatch, 'version'>): boolean {
   return (
     patch.upsertNodes.length === 0 &&
     patch.removeNodeIds.length === 0 &&

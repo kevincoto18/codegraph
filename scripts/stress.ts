@@ -10,6 +10,7 @@
 import { GraphService } from '../src/extension/graphService';
 import { PerformanceTracker } from '../src/extension/perf';
 import type { GraphPatch, GraphSnapshot } from '../src/shared';
+import { createGraphInitMessages } from '../src/shared';
 import type { GeneratedProject } from './lib/generateProject';
 import { generateProject } from './lib/generateProject';
 import {
@@ -101,10 +102,25 @@ function scanStages(tracker: PerformanceTracker): Record<string, number> {
 }
 
 /**
- * Measures the serialized size of a message.
+ * Measures the total serialized size of a sequence of messages.
  *
- * @param message - Message to serialize.
- * @returns Size in bytes and serialization time.
+ * @param messages - Messages to serialize.
+ * @returns Total size in bytes and serialization time.
+ */
+function measureMessages(messages: readonly unknown[]): { bytes: number; ms: number } {
+  const startedAt = performance.now();
+  const bytes = messages.reduce<number>(
+    (total, message) => total + Buffer.byteLength(JSON.stringify(message), 'utf8'),
+    0,
+  );
+  return { bytes, ms: performance.now() - startedAt };
+}
+
+/**
+ * Measures the serialized size of a message and the time to serialize it.
+ *
+ * @param message - Message to measure.
+ * @returns Size in bytes and serialization time in milliseconds.
  */
 function measureMessage(message: unknown): { bytes: number; ms: number } {
   const startedAt = performance.now();
@@ -251,7 +267,7 @@ async function runSize(size: StressSize, seed: number): Promise<SizeResult> {
   collectGarbage();
   const heapAfterScan = process.memoryUsage();
 
-  const init = measureMessage({ type: 'graph/init', graph: snapshot });
+  const init = measureMessages(createGraphInitMessages(snapshot));
 
   console.log('  repeated scans…');
   const repeated: number[] = [];

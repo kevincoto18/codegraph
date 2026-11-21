@@ -6,6 +6,7 @@ import { useCallback, useEffect, useReducer } from 'react';
 import type { RelPath } from '../shared';
 import type { GraphChannelState } from './graphChannel';
 import { INITIAL_GRAPH_CHANNEL_STATE, reduceHostMessage } from './graphChannel';
+import { SnapshotAssembler } from './snapshotAssembler';
 import { postToHost, subscribeToHost } from './vscodeApi';
 
 /** State and actions exposed to the UI. */
@@ -27,7 +28,18 @@ export function useGraphChannel(): GraphChannel {
   const [state, dispatch] = useReducer(reduceHostMessage, INITIAL_GRAPH_CHANNEL_STATE);
 
   useEffect(() => {
-    const unsubscribe = subscribeToHost(dispatch);
+    // Graph parts are collected outside the reducer, which only sees whole snapshots.
+    const assembler = new SnapshotAssembler();
+    const unsubscribe = subscribeToHost((message) => {
+      if (message.type !== 'graph/init') {
+        dispatch(message);
+        return;
+      }
+      const graph = assembler.accept(message);
+      if (graph !== null) {
+        dispatch({ type: 'graph/loaded', graph });
+      }
+    });
     postToHost({ type: 'ready' });
     return unsubscribe;
   }, []);

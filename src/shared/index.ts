@@ -17,6 +17,7 @@ export type {
 export type {
   AnalysisState,
   CollapseMode,
+  GraphInitMessage,
   HostToWebview,
   MetricSample,
   ViewOptions,
@@ -25,7 +26,10 @@ export type {
 export {
   COLLAPSE_MODES,
   MAX_METRIC_SAMPLES,
+  createGraphInitMessages,
   isHostToWebviewMessage,
   isWebviewToHostMessage,
 } from './messages';
+export type { ChunkLimits, WireFile, WireFunction, WireGraphChunk } from './wire';
+export { DEFAULT_CHUNK_LIMITS, decodeSnapshot, encodeSnapshot } from './wire';
 export { createEdgeId, createFileId, createFunctionId, toPosixPath } from './ids';

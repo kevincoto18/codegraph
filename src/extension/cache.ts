@@ -1,5 +1,6 @@
 /**
- * In-memory cache of parser results keyed by file, invalidated by content hash.
+ * Cache of parser results keyed by file, invalidated by content hash. Entries
+ * can be exported and restored so the cache survives VS Code restarts.
  */
 import { createHash } from 'node:crypto';
 
@@ -19,10 +20,35 @@ export interface CacheUpdateResult {
   readonly changed: boolean;
 }
 
+/** Modification time and size of a file, used to skip reading unchanged files. */
+export interface FileStamp {
+  /** Last modification time, in milliseconds since the epoch. */
+  readonly mtime: number;
+  /** Size in bytes. */
+  readonly size: number;
+}
+
 /** A cached parse result together with the hash of the content it came from. */
-interface CacheEntry {
+export interface CacheEntry {
+  readonly filePath: RelPath;
   readonly hash: string;
   readonly parsed: ParsedFile;
+  /** Stamp of the file when it was read, if known. */
+  readonly stamp?: FileStamp;
+}
+
+/**
+ * Compares two file stamps.
+ *
+ * @param a - First stamp.
+ * @param b - Second stamp.
+ * @returns `true` if both are defined and equal.
+ */
+export function isSameStamp(a: FileStamp | undefined, b: FileStamp | undefined): boolean {
+  if (a === undefined || b === undefined) {
+    return false;
+  }
+  return a.mtime === b.mtime && a.size === b.size;
 }
 
 /**
@@ -75,17 +101,72 @@ export class AnalysisCache {
    *
    * @param filePath - Workspace-relative POSIX path.
    * @param content - Current file text.
+   * @param stamp - Stamp of the file when it was read, if known.
    * @returns The parse result and whether it was recomputed.
    */
-  public update(filePath: RelPath, content: string): CacheUpdateResult {
+  public update(filePath: RelPath, content: string, stamp?: FileStamp): CacheUpdateResult {
     const hash = this.timed(`${this.metricPrefix}.hash`, () => hashContent(content));
     const cached = this.entries.get(filePath);
     if (cached?.hash === hash) {
+      if (stamp !== undefined && !isSameStamp(cached.stamp, stamp)) {
+        this.entries.set(filePath, { ...cached, stamp });
+      }
       return { parsed: cached.parsed, changed: false };
     }
     const parsed = this.timed(`${this.metricPrefix}.parse`, () => this.parse(filePath, content));
-    this.entries.set(filePath, { hash, parsed });
+    this.entries.set(filePath, {
+      filePath,
+      hash,
+      parsed,
+      ...(stamp === undefined ? {} : { stamp }),
+    });
     return { parsed, changed: true };
+  }
+
+  /**
+   * Checks whether a file is cached with the given stamp, i.e. whether it can
+   * be reused without reading the file.
+   *
+   * @param filePath - Workspace-relative POSIX path.
+   * @param stamp - Current stamp of the file.
+   * @returns `true` if the cached entry has the same stamp.
+   */
+  public isFresh(filePath: RelPath, stamp: FileStamp | undefined): boolean {
+    return isSameStamp(this.entries.get(filePath)?.stamp, stamp);
+  }
+
+  /**
+   * Drops every entry whose file is not in a set.
+   *
+   * @param filePaths - Files to keep.
+   */
+  public retain(filePaths: ReadonlySet<RelPath>): void {
+    for (const filePath of this.entries.keys()) {
+      if (!filePaths.has(filePath)) {
+        this.entries.delete(filePath);
+      }
+    }
+  }
+
+  /**
+   * Lists every entry, for persistence.
+   *
+   * @returns A new array with one entry per cached file.
+   */
+  public exportEntries(): CacheEntry[] {
+    return [...this.entries.values()];
+  }
+
+  /**
+   * Replaces the cache content with previously exported entries.
+   *
+   * @param entries - Entries returned by {@link exportEntries}.
+   */
+  public importEntries(entries: readonly CacheEntry[]): void {
+    this.entries.clear();
+    for (const entry of entries) {
+      this.entries.set(entry.filePath, entry);
+    }
   }
 
   /**

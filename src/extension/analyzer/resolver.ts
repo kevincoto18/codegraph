@@ -52,6 +52,25 @@ export function buildCandidatePaths(basePath: RelPath): RelPath[] {
 }
 
 /**
+ * Lists the workspace paths a relative import could refer to, in priority order.
+ *
+ * @param fromFile - Workspace-relative POSIX path of the importing file.
+ * @param specifier - Raw module specifier written in the import.
+ * @returns Candidate paths; empty if the specifier is not relative or points
+ *   outside the workspace.
+ */
+export function listImportCandidates(fromFile: RelPath, specifier: string): RelPath[] {
+  if (!isRelativeSpecifier(specifier)) {
+    return [];
+  }
+  const basePath = posix.normalize(posix.join(posix.dirname(fromFile), specifier));
+  if (basePath === '..' || basePath.startsWith('../')) {
+    return [];
+  }
+  return buildCandidatePaths(basePath);
+}
+
+/**
  * Resolves a relative import to a known workspace file.
  *
  * @param fromFile - Workspace-relative POSIX path of the importing file.
@@ -65,14 +84,7 @@ export function resolveImport(
   specifier: string,
   knownFiles: ReadonlySet<RelPath>,
 ): RelPath | null {
-  if (!isRelativeSpecifier(specifier)) {
-    return null;
-  }
-
-  const basePath = posix.normalize(posix.join(posix.dirname(fromFile), specifier));
-  if (basePath === '..' || basePath.startsWith('../')) {
-    return null;
-  }
-
-  return buildCandidatePaths(basePath).find((candidate) => knownFiles.has(candidate)) ?? null;
+  return (
+    listImportCandidates(fromFile, specifier).find((candidate) => knownFiles.has(candidate)) ?? null
+  );
 }

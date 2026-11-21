@@ -60,9 +60,9 @@ describe('reduceHostMessage', () => {
     });
   });
 
-  it('stores the snapshot and becomes ready on graph/init', () => {
+  it('stores the snapshot and becomes ready on graph/loaded', () => {
     const state = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
-      type: 'graph/init',
+      type: 'graph/loaded',
       graph: SNAPSHOT,
     });
     expect(state).toEqual({
@@ -78,7 +78,7 @@ describe('reduceHostMessage', () => {
 
   it('keeps the current graph while a rescan is analyzing', () => {
     const ready = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
-      type: 'graph/init',
+      type: 'graph/loaded',
       graph: SNAPSHOT,
     });
     const analyzing = reduceHostMessage(ready, { type: 'status', state: 'analyzing' });
@@ -114,7 +114,7 @@ describe('summarizeGraph', () => {
 
 describe('reduceHostMessage — live patches', () => {
   const ready = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
-    type: 'graph/init',
+    type: 'graph/loaded',
     graph: SNAPSHOT,
   });
 
@@ -151,7 +151,7 @@ describe('reduceHostMessage — live patches', () => {
   it('clears the resync flag and starts a new session on the next snapshot', () => {
     const gap = reduceHostMessage(ready, { type: 'graph/patch', patch: makePatch(6) });
     const resynced = reduceHostMessage(gap, {
-      type: 'graph/init',
+      type: 'graph/loaded',
       graph: { ...SNAPSHOT, version: 6 },
     });
     expect(resynced).toMatchObject({
@@ -169,7 +169,7 @@ describe('reduceHostMessage — view options', () => {
       options: { collapseMode: 'never' },
     });
     expect(withOptions.options).toEqual({ collapseMode: 'never' });
-    const ready = reduceHostMessage(withOptions, { type: 'graph/init', graph: SNAPSHOT });
+    const ready = reduceHostMessage(withOptions, { type: 'graph/loaded', graph: SNAPSHOT });
     expect(ready.options).toEqual({ collapseMode: 'never' });
   });
 });
