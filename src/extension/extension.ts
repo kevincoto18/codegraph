@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 
+import { GraphService } from './graphService';
+import { VsCodeWorkspaceReader } from './workspaceReader';
+
 /** Command identifier contributed in `package.json`. */
 const OPEN_GRAPH_COMMAND = 'codegraph.openGraph';
 
@@ -19,9 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     logger,
-    vscode.commands.registerCommand(OPEN_GRAPH_COMMAND, () => {
-      handleOpenGraph(logger);
-    }),
+    vscode.commands.registerCommand(OPEN_GRAPH_COMMAND, () => handleOpenGraph(logger)),
   );
 
   logger.info('CodeGraph activated.');
@@ -30,12 +31,32 @@ export function activate(context: vscode.ExtensionContext): void {
 /**
  * Handles the `CodeGraph: Open Graph` command.
  *
- * @remarks Phase 0 placeholder: confirms the command wiring works. The
- * webview panel replaces this behaviour in Phase 4.
+ * @remarks Phase 3: scans the first workspace folder and reports graph stats.
+ * The webview panel replaces this behaviour in Phase 4.
  *
  * @param logger - Log channel used to trace command execution.
  */
-function handleOpenGraph(logger: vscode.LogOutputChannel): void {
-  logger.info(`Command "${OPEN_GRAPH_COMMAND}" executed.`);
-  void vscode.window.showInformationMessage('CodeGraph: scaffolding ready.');
+async function handleOpenGraph(logger: vscode.LogOutputChannel): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (folder === undefined) {
+    void vscode.window.showWarningMessage('CodeGraph: open a folder to analyze.');
+    return;
+  }
+
+  const service = new GraphService(new VsCodeWorkspaceReader(folder.uri), logger);
+  const startedAt = Date.now();
+  try {
+    const snapshot = await service.initialize();
+    const files = snapshot.nodes.filter((node) => node.kind === 'file').length;
+    const functions = snapshot.nodes.length - files;
+    const calls = snapshot.edges.filter((edge) => edge.kind === 'call').length;
+    const imports = snapshot.edges.length - calls;
+    const summary = `${String(files)} files, ${String(functions)} functions, ${String(imports)} imports, ${String(calls)} calls (${String(Date.now() - startedAt)} ms)`;
+    logger.info(`Graph built: ${summary}`);
+    void vscode.window.showInformationMessage(`CodeGraph: ${summary}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`Graph build failed: ${message}`);
+    void vscode.window.showErrorMessage(`CodeGraph: analysis failed — ${message}`);
+  }
 }
