@@ -18,8 +18,14 @@ export type {
   AnalysisState,
   CollapseMode,
   HostToWebview,
+  MetricSample,
   ViewOptions,
   WebviewToHost,
 } from './messages';
-export { COLLAPSE_MODES, isHostToWebviewMessage, isWebviewToHostMessage } from './messages';
+export {
+  COLLAPSE_MODES,
+  MAX_METRIC_SAMPLES,
+  isHostToWebviewMessage,
+  isWebviewToHostMessage,
+} from './messages';
 export { createEdgeId, createFileId, createFunctionId, toPosixPath } from './ids';

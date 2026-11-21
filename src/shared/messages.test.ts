@@ -7,6 +7,8 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'ready' }],
     [{ type: 'refresh' }],
     [{ type: 'navigate', filePath: 'src/a.ts', line: 3 }],
+    [{ type: 'metrics', samples: [] }],
+    [{ type: 'metrics', samples: [{ name: 'layout.full', value: 12.5 }] }],
   ])('accepts %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(true);
   });
@@ -19,6 +21,11 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'navigate', filePath: '', line: 1 }],
     [{ type: 'navigate', filePath: 'a.ts', line: 0 }],
     [{ type: 'navigate', filePath: 'a.ts', line: 1.5 }],
+    [{ type: 'metrics' }],
+    [{ type: 'metrics', samples: [{ name: '', value: 1 }] }],
+    [{ type: 'metrics', samples: [{ name: 'x', value: -1 }] }],
+    [{ type: 'metrics', samples: [{ name: 'x', value: Number.NaN }] }],
+    [{ type: 'metrics', samples: Array.from({ length: 101 }, () => ({ name: 'x', value: 1 })) }],
   ])('rejects %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(false);
   });

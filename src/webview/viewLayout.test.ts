@@ -79,6 +79,14 @@ describe('computeViewLayout', () => {
   const collapsed = new Set<string>();
   const first = computeViewLayout(null, BASE, collapsed, 0);
 
+  it('reports how the layout was computed', () => {
+    expect(first.mode).toBe('full');
+    expect(computeViewLayout(first, { ...BASE, version: 2 }, collapsed, 0).mode).toBe(
+      'incremental',
+    );
+    expect(computeViewLayout(first, BASE, collapsed, 1).mode).toBe('full');
+  });
+
   it('reports whether a state matches its inputs', () => {
     expect(isViewLayoutCurrent(first, BASE, collapsed, 0)).toBe(true);
     expect(isViewLayoutCurrent(first, { ...BASE }, collapsed, 0)).toBe(false);

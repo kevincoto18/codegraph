@@ -3,9 +3,10 @@
  */
 import * as vscode from 'vscode';
 
-import type { HostToWebview, RelPath, WebviewToHost } from '../shared';
+import type { GraphPatch, HostToWebview, MetricSample, RelPath, WebviewToHost } from '../shared';
 import { GraphService } from './graphService';
 import { openFileAtLine } from './navigation';
+import { formatPerformanceReport } from './perf';
 import { CodeGraphPanel } from './panel';
 import type { CodeGraphSettings } from './settings';
 import { SETTINGS_SECTION, readSettings, toViewOptions } from './settings';
@@ -114,7 +115,7 @@ export class CodeGraphController implements vscode.Disposable {
         reader,
         service,
         (patch) => {
-          void this.post({ type: 'graph/patch', patch });
+          void this.postPatch(patch);
         },
         this.logger,
       );
@@ -141,6 +142,9 @@ export class CodeGraphController implements vscode.Disposable {
       case 'navigate':
         await this.navigate(message.filePath, message.line);
         return;
+      case 'metrics':
+        this.recordWebviewMetrics(message.samples);
+        return;
     }
   }
 
@@ -156,7 +160,7 @@ export class CodeGraphController implements vscode.Disposable {
     }
     const current = session.service.getSnapshot();
     if (!forceRescan && current.version > 0) {
-      await this.post({ type: 'graph/init', graph: current });
+      await this.postMeasured('message.init', { type: 'graph/init', graph: current });
       return;
     }
 
@@ -165,7 +169,7 @@ export class CodeGraphController implements vscode.Disposable {
     try {
       const graph = await session.service.initialize();
       this.logger.info(`Graph sent to webview after ${String(Date.now() - startedAt)} ms.`);
-      await this.post({ type: 'graph/init', graph });
+      await this.postMeasured('message.init', { type: 'graph/init', graph });
     } catch (error) {
       const message = describeError(error);
       this.logger.error(`Graph build failed: ${message}`);
@@ -203,6 +207,61 @@ export class CodeGraphController implements vscode.Disposable {
       this.logger.error(`Could not open "${filePath}": ${message}`);
       void vscode.window.showErrorMessage(`CodeGraph: could not open ${filePath} — ${message}`);
     }
+  }
+
+  /**
+   * Opens a Markdown report with the performance metrics of the current session.
+   */
+  public async showPerformanceReport(): Promise<void> {
+    if (this.session === undefined) {
+      void vscode.window.showInformationMessage(
+        'CodeGraph: open the graph first to collect performance metrics.',
+      );
+      return;
+    }
+    const content = formatPerformanceReport(
+      `CodeGraph performance — ${this.session.folder.name}`,
+      this.session.service.performance,
+    );
+    const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
+    await vscode.window.showTextDocument(document, { preview: true });
+  }
+
+  /**
+   * Stores the performance samples measured by the webview.
+   *
+   * @param samples - Samples received in a `metrics` message.
+   */
+  private recordWebviewMetrics(samples: readonly MetricSample[]): void {
+    const tracker = this.session?.service.performance;
+    for (const sample of samples) {
+      tracker?.record(`webview.${sample.name}`, sample.value);
+    }
+  }
+
+  /**
+   * Sends a patch to the panel, recording its size and serialization time.
+   *
+   * @param patch - Patch produced by a live update.
+   */
+  private async postPatch(patch: GraphPatch): Promise<void> {
+    await this.postMeasured('message.patch', { type: 'graph/patch', patch });
+  }
+
+  /**
+   * Sends a message to the panel, recording its serialized size and the time
+   * spent serializing it (VS Code serializes it again internally).
+   *
+   * @param metricName - Base name of the size and serialization metrics.
+   * @param message - Message to deliver.
+   */
+  private async postMeasured(metricName: string, message: HostToWebview): Promise<void> {
+    const tracker = this.session?.service.performance;
+    if (tracker !== undefined && this.panel !== undefined) {
+      const json = tracker.measure(`${metricName}.serialize`, () => JSON.stringify(message));
+      tracker.record(`${metricName}.size`, Buffer.byteLength(json, 'utf8'), 'bytes');
+    }
+    await this.post(message);
   }
 
   /**

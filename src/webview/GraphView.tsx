@@ -11,6 +11,7 @@ import type { GraphActions } from './graphActions';
 import { GraphCanvas } from './GraphCanvas';
 import type { GraphChange } from './graphChannel';
 import { summarizeGraph } from './graphChannel';
+import { reportMetric } from './metrics';
 import { addClassToNodes } from './patch';
 import { SearchBox } from './SearchBox';
 import { decorateEdges, decorateNodes, matchNodes } from './search';
@@ -45,6 +46,29 @@ const CHANGE_HIGHLIGHT_MS = 1500;
 
 /** Shared empty set used when no node is highlighted. */
 const NO_IDS: ReadonlySet<string> = new Set();
+
+/** Layout state plus how long it took to compute. */
+type MeasuredLayout = ViewLayoutState & { readonly durationMs: number };
+
+/**
+ * Computes the canvas layout and times it.
+ *
+ * @param previous - Previous layout state, or `null` on first render.
+ * @param snapshot - Graph snapshot.
+ * @param collapsedFileIds - Ids of collapsed files.
+ * @param layoutRequest - Re-layout counter.
+ * @returns The new layout state with its computation time.
+ */
+function measureLayout(
+  previous: ViewLayoutState | null,
+  snapshot: GraphSnapshot,
+  collapsedFileIds: ReadonlySet<string>,
+  layoutRequest: number,
+): MeasuredLayout {
+  const startedAt = performance.now();
+  const state = computeViewLayout(previous, snapshot, collapsedFileIds, layoutRequest);
+  return { ...state, durationMs: performance.now() - startedAt };
+}
 
 /**
  * Graph screen: toolbar (status, search, expand/collapse all, re-layout,
@@ -95,14 +119,16 @@ function GraphViewContent({
 
   // Recompute the canvas when its inputs change (adjusting state during render):
   // live patches keep file positions; collapse changes and re-layout do not.
-  const [layoutState, setLayoutState] = useState<ViewLayoutState>(() =>
-    computeViewLayout(null, snapshot, collapsedFileIds, layoutRequest),
+  const [layoutState, setLayoutState] = useState<MeasuredLayout>(() =>
+    measureLayout(null, snapshot, collapsedFileIds, layoutRequest),
   );
   let current = layoutState;
   if (!isViewLayoutCurrent(layoutState, snapshot, collapsedFileIds, layoutRequest)) {
-    current = computeViewLayout(layoutState, snapshot, collapsedFileIds, layoutRequest);
+    current = measureLayout(layoutState, snapshot, collapsedFileIds, layoutRequest);
     setLayoutState(current);
   }
+  // Time from the first render until the graph is painted.
+  const [mountedAt] = useState(() => performance.now());
 
   const highlightedChangeIds =
     lastChange !== null && lastChange.version > expiredChangeVersion ? lastChange.nodeIds : NO_IDS;
@@ -117,6 +143,26 @@ function GraphViewContent({
     [current.edges, search],
   );
   const summary = useMemo(() => summarizeGraph(snapshot), [snapshot]);
+
+  // Report each recomputed layout once (dragging nodes does not recompute it).
+  useEffect(() => {
+    reportMetric(`layout.${current.mode}`, current.durationMs);
+  }, [
+    current.snapshot,
+    current.collapsedFileIds,
+    current.layoutRequest,
+    current.mode,
+    current.durationMs,
+  ]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      reportMetric('render.first', performance.now() - mountedAt);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [mountedAt]);
 
   useEffect(() => {
     const request = pendingFitRef.current;

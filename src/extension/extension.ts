@@ -6,6 +6,9 @@ import { createOpenGraphStatusBarItem } from './statusBar';
 /** Command identifier contributed in `package.json`. */
 const OPEN_GRAPH_COMMAND = 'codegraph.openGraph';
 
+/** Command that opens the performance report. */
+const PERFORMANCE_REPORT_COMMAND = 'codegraph.showPerformanceReport';
+
 /** Name of the output channel used for all extension logs. */
 const LOG_CHANNEL_NAME = 'CodeGraph';
 
@@ -29,6 +32,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(OPEN_GRAPH_COMMAND, () => {
       controller.openGraph();
     }),
+    vscode.commands.registerCommand(PERFORMANCE_REPORT_COMMAND, () =>
+      controller.showPerformanceReport(),
+    ),
     createOpenGraphStatusBarItem(OPEN_GRAPH_COMMAND),
   );
 

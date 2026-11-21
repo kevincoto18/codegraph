@@ -13,6 +13,8 @@ export interface ViewLayoutState {
   readonly collapsedFileIds: ReadonlySet<string>;
   /** Incremented to request a full re-layout. */
   readonly layoutRequest: number;
+  /** How the nodes were positioned: full dagre layout or incremental merge. */
+  readonly mode: 'full' | 'incremental';
   readonly nodes: CodeGraphFlowNode[];
   readonly edges: CodeGraphFlowEdge[];
 }
@@ -68,11 +70,12 @@ export function computeViewLayout(
       snapshot,
       collapsedFileIds,
       layoutRequest,
+      mode: 'incremental',
       nodes: preserveFilePositions(elements, previous.nodes),
       edges: elements.edges,
     };
   }
 
   const { nodes, edges } = buildFlowGraph(snapshot, { collapsedFileIds });
-  return { snapshot, collapsedFileIds, layoutRequest, nodes, edges };
+  return { snapshot, collapsedFileIds, layoutRequest, mode: 'full', nodes, edges };
 }

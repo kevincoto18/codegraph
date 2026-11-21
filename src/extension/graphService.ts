@@ -9,7 +9,9 @@ import type { GraphPatch, GraphSnapshot, RelPath } from '../shared';
 import { isAnalyzableFile } from './analyzer/config';
 import { diffSnapshots, isEmptyPatch } from './analyzer/diff';
 import { linkGraph } from './analyzer/linker';
+import { parseSource } from './analyzer/parser';
 import { AnalysisCache } from './cache';
+import { PerformanceTracker } from './perf';
 
 /** Port that gives the service read access to workspace files. */
 export interface WorkspaceReader {
@@ -44,6 +46,8 @@ export interface GraphServiceOptions {
   readonly maxFiles?: number;
   /** Number of files read in parallel during a scan. */
   readonly readConcurrency?: number;
+  /** Receives per-stage timings; a private tracker is created when omitted. */
+  readonly tracker?: PerformanceTracker;
 }
 
 /** Default cap on analyzed files, to keep huge repositories responsive. */
@@ -76,23 +80,33 @@ export class GraphService {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly maxFiles: number;
   private readonly readConcurrency: number;
+  private readonly tracker: PerformanceTracker;
+  private readonly cache: AnalysisCache;
 
   /**
    * Creates the service.
    *
    * @param reader - Access to workspace files.
    * @param logger - Destination of diagnostic messages.
-   * @param cache - Parse cache (injectable for tests).
-   * @param options - Tunable limits.
+   * @param cache - Parse cache (injectable for tests); by default a cache that
+   *   reports its timings to the service's tracker.
+   * @param options - Tunable limits and the performance tracker.
    */
   public constructor(
     private readonly reader: WorkspaceReader,
     private readonly logger: ServiceLogger,
-    private readonly cache: AnalysisCache = new AnalysisCache(),
+    cache?: AnalysisCache,
     options: GraphServiceOptions = {},
   ) {
     this.maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
     this.readConcurrency = options.readConcurrency ?? DEFAULT_READ_CONCURRENCY;
+    this.tracker = options.tracker ?? new PerformanceTracker();
+    this.cache = cache ?? new AnalysisCache(parseSource, this.tracker);
+  }
+
+  /** Per-stage timings of scans, updates and removals. */
+  public get performance(): PerformanceTracker {
+    return this.tracker;
   }
 
   /**
@@ -111,15 +125,27 @@ export class GraphService {
    */
   public initialize(): Promise<GraphSnapshot> {
     return this.enqueue(async () => {
-      const filePaths = await this.listAnalyzableFiles();
+      const tracker = this.tracker;
+      tracker.reset('scan.');
+      const startedAt = performance.now();
+
+      const filePaths = await tracker.measureAsync('scan.list', () => this.listAnalyzableFiles());
       this.cache.clear();
-      const contents = await this.readFiles(filePaths);
+      this.cache.setMetricPrefix('scan');
+      const contents = await tracker.measureAsync('scan.read', () => this.readFiles(filePaths));
       for (const [filePath, content] of contents) {
         this.cache.update(filePath, content);
       }
-      this.snapshot = linkGraph(this.cache.getAll(), this.snapshot.version + 1);
+      const version = this.snapshot.version + 1;
+      this.snapshot = tracker.measure('scan.link', () => linkGraph(this.cache.getAll(), version));
+
+      const totalMs = performance.now() - startedAt;
+      tracker.record('scan.total', totalMs);
+      tracker.record('scan.files', contents.size, 'count');
+      tracker.record('scan.nodes', this.snapshot.nodes.length, 'count');
+      tracker.record('scan.edges', this.snapshot.edges.length, 'count');
       this.logger.info(
-        `Scan complete: ${String(contents.size)} files, ${String(this.snapshot.nodes.length)} nodes, ${String(this.snapshot.edges.length)} edges.`,
+        `Scan complete: ${String(contents.size)} files, ${String(this.snapshot.nodes.length)} nodes, ${String(this.snapshot.edges.length)} edges in ${totalMs.toFixed(0)} ms.`,
       );
       return this.snapshot;
     });
@@ -137,15 +163,21 @@ export class GraphService {
       if (!isAnalyzableFile(filePath)) {
         return null;
       }
+      const startedAt = performance.now();
       let content: string;
       try {
-        content = await this.reader.readFile(filePath);
+        content = await this.tracker.measureAsync('update.read', () =>
+          this.reader.readFile(filePath),
+        );
       } catch (error) {
         this.logger.error(`Could not read "${filePath}": ${describeError(error)}`);
         return null;
       }
+      this.cache.setMetricPrefix('update');
       const { changed } = this.cache.update(filePath, content);
-      return changed ? this.relink() : null;
+      const patch = changed ? this.relink('update') : null;
+      this.tracker.record('update.total', performance.now() - startedAt);
+      return patch;
     });
   }
 
@@ -156,17 +188,28 @@ export class GraphService {
    * @returns The resulting patch, or `null` if the file was not part of the graph.
    */
   public removeFile(filePath: RelPath): Promise<GraphPatch | null> {
-    return this.enqueue(() => Promise.resolve(this.cache.delete(filePath) ? this.relink() : null));
+    return this.enqueue(() => {
+      const startedAt = performance.now();
+      const patch = this.cache.delete(filePath) ? this.relink('remove') : null;
+      this.tracker.record('remove.total', performance.now() - startedAt);
+      return Promise.resolve(patch);
+    });
   }
 
   /**
    * Rebuilds the graph from the cache and stores it if anything changed.
    *
+   * @param metricPrefix - Prefix of the `link` and `diff` timing metrics.
    * @returns The patch from the previous snapshot, or `null` if it is empty.
    */
-  private relink(): GraphPatch | null {
-    const next = linkGraph(this.cache.getAll(), this.snapshot.version + 1);
-    const patch = diffSnapshots(this.snapshot, next);
+  private relink(metricPrefix: string): GraphPatch | null {
+    const version = this.snapshot.version + 1;
+    const next = this.tracker.measure(`${metricPrefix}.link`, () =>
+      linkGraph(this.cache.getAll(), version),
+    );
+    const patch = this.tracker.measure(`${metricPrefix}.diff`, () =>
+      diffSnapshots(this.snapshot, next),
+    );
     if (isEmptyPatch(patch)) {
       return null;
     }

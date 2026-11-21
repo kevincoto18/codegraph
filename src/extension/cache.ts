@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import type { RelPath } from '../shared';
 import { parseSource } from './analyzer/parser';
 import type { ParsedFile } from './analyzer/types';
+import type { PerformanceTracker } from './perf';
 
 /** Signature of the function used to parse a file. */
 export type ParseFunction = (filePath: RelPath, content: string) => ParsedFile;
@@ -40,13 +41,28 @@ export function hashContent(content: string): string {
  */
 export class AnalysisCache {
   private readonly entries = new Map<RelPath, CacheEntry>();
+  /** Prefix of the timing metrics (`<prefix>.hash`, `<prefix>.parse`). */
+  private metricPrefix = 'cache';
 
   /**
    * Creates an empty cache.
    *
    * @param parse - Parser used for new or changed content (injectable for tests).
+   * @param tracker - Optional tracker receiving `<prefix>.hash` and `<prefix>.parse` timings.
    */
-  public constructor(private readonly parse: ParseFunction = parseSource) {}
+  public constructor(
+    private readonly parse: ParseFunction = parseSource,
+    private readonly tracker?: PerformanceTracker,
+  ) {}
+
+  /**
+   * Sets the prefix of the timing metrics, so scans and updates are reported separately.
+   *
+   * @param prefix - Metric prefix, e.g. `scan` or `update`.
+   */
+  public setMetricPrefix(prefix: string): void {
+    this.metricPrefix = prefix;
+  }
 
   /** Number of cached files. */
   public get size(): number {
@@ -62,12 +78,12 @@ export class AnalysisCache {
    * @returns The parse result and whether it was recomputed.
    */
   public update(filePath: RelPath, content: string): CacheUpdateResult {
-    const hash = hashContent(content);
+    const hash = this.timed(`${this.metricPrefix}.hash`, () => hashContent(content));
     const cached = this.entries.get(filePath);
     if (cached?.hash === hash) {
       return { parsed: cached.parsed, changed: false };
     }
-    const parsed = this.parse(filePath, content);
+    const parsed = this.timed(`${this.metricPrefix}.parse`, () => this.parse(filePath, content));
     this.entries.set(filePath, { hash, parsed });
     return { parsed, changed: true };
   }
@@ -95,6 +111,17 @@ export class AnalysisCache {
   /** Removes every cached file. */
   public clear(): void {
     this.entries.clear();
+  }
+
+  /**
+   * Runs an operation, timing it when a tracker is attached.
+   *
+   * @param name - Metric name.
+   * @param operation - Work to run.
+   * @returns The operation's result.
+   */
+  private timed<T>(name: string, operation: () => T): T {
+    return this.tracker === undefined ? operation() : this.tracker.measure(name, operation);
   }
 
   /**

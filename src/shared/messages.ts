@@ -33,7 +33,20 @@ export type WebviewToHost =
   /** Request to open a file and place the cursor at a 1-based line. */
   | { readonly type: 'navigate'; readonly filePath: RelPath; readonly line: number }
   /** Request a full re-scan of the workspace. */
-  | { readonly type: 'refresh' };
+  | { readonly type: 'refresh' }
+  /** Performance samples measured in the webview (milliseconds). */
+  | { readonly type: 'metrics'; readonly samples: readonly MetricSample[] };
+
+/** One performance measurement taken in the webview. */
+export interface MetricSample {
+  /** Metric name, e.g. `layout.full`. */
+  readonly name: string;
+  /** Duration in milliseconds. */
+  readonly value: number;
+}
+
+/** Maximum number of samples accepted in one `metrics` message. */
+export const MAX_METRIC_SAMPLES = 100;
 
 /** All valid analysis states, used for runtime validation. */
 const ANALYSIS_STATES: readonly AnalysisState[] = ['analyzing', 'ready', 'error'];
@@ -59,6 +72,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+/**
+ * Checks whether a value is a valid metric sample.
+ *
+ * @param value - Value to inspect.
+ * @returns `true` for `{ name: non-empty string, value: finite number >= 0 }`.
+ */
+function isMetricSample(value: unknown): value is MetricSample {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    typeof value.value === 'number' &&
+    Number.isFinite(value.value) &&
+    value.value >= 0
+  );
 }
 
 /**
@@ -112,6 +142,12 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHost {
         typeof value.filePath === 'string' &&
         value.filePath.length > 0 &&
         isPositiveInteger(value.line)
+      );
+    case 'metrics':
+      return (
+        Array.isArray(value.samples) &&
+        value.samples.length <= MAX_METRIC_SAMPLES &&
+        value.samples.every(isMetricSample)
       );
     default:
       return false;

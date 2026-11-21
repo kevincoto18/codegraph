@@ -24,6 +24,11 @@
         "title": "Open Graph",
         "category": "CodeGraph",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "codegraph.showPerformanceReport",
+        "title": "Show Performance Report",
+        "category": "CodeGraph"
       }
     ],
     "keybindings": [
@@ -63,6 +68,13 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "node scripts/run.mjs scripts/bench.ts",
+    "bench:baseline": "node scripts/run.mjs scripts/bench.ts --save-baseline",
+    "bench:check": "node scripts/run.mjs scripts/bench.ts --check",
+    "stress": "node scripts/run.mjs scripts/stress.ts",
+    "stress:full": "node scripts/run.mjs scripts/stress.ts --sizes S,M,L,XL",
+    "stress:ui": "node scripts/run.mjs scripts/stress-ui.ts",
+    "stress:generate": "node scripts/run.mjs scripts/generate-stress-project.ts",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -83,6 +95,7 @@
     "eslint-plugin-jsdoc": "^65.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
+    "playwright-core": "^1.65.1",
     "prettier": "^3.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
