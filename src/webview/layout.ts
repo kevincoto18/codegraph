@@ -1,12 +1,11 @@
 /**
- * Automatic layout of file containers with dagre, plus column wrapping for
- * ranks that would otherwise grow too tall.
+ * Automatic layout of file containers with the linear-time layered layout,
+ * plus column wrapping for ranks that would otherwise grow too tall.
  */
-import type { EdgeLabel, GraphLabel, NodeLabel } from '@dagrejs/dagre';
-import dagre from '@dagrejs/dagre';
 
 import type { GraphSnapshot } from '../shared';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode, FlowElements } from './flowTypes';
+import { layoutLayered } from './layeredLayout';
 import { toFlowElements } from './toFlowElements';
 
 /** Tunable layout parameters. */
@@ -22,6 +21,8 @@ export interface LayoutOptions {
    * side-by-side sub-columns. `Infinity` disables wrapping.
    */
   readonly maxColumnHeight: number;
+  /** Barycenter sweeps used to reduce edge crossings. */
+  readonly sweeps: number;
 }
 
 /** Default layout: dependencies flow left to right, columns wrap at 2400 px. */
@@ -30,10 +31,8 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
   nodeSeparation: 40,
   rankSeparation: 140,
   maxColumnHeight: 2400,
+  sweeps: 4,
 };
-
-/** Outer margin of the laid-out graph, in pixels. */
-const GRAPH_MARGIN = 20;
 
 /** Horizontal gap between sub-columns of a wrapped rank, in pixels. */
 const SUB_COLUMN_GAP = 60;
@@ -47,9 +46,9 @@ export interface BuildFlowGraphOptions {
 }
 
 /**
- * Positions file containers with dagre. Every edge is projected to the file
- * level, so files that call each other are ranked like files that import each
- * other. Function nodes keep their positions relative to their file.
+ * Positions file containers with the layered layout. Every edge is projected
+ * to the file level, so files that call each other are ranked like files that
+ * import each other. Function nodes keep their positions relative to their file.
  *
  * @param elements - Unpositioned nodes and edges.
  * @param options - Layout parameters.
@@ -59,36 +58,25 @@ export function layoutFileNodes(
   elements: FlowElements,
   options: LayoutOptions = DEFAULT_LAYOUT_OPTIONS,
 ): CodeGraphFlowNode[] {
-  const graph = new dagre.graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>();
-  graph.setGraph({
-    rankdir: options.rankDirection,
-    nodesep: options.nodeSeparation,
-    ranksep: options.rankSeparation,
-    marginx: GRAPH_MARGIN,
-    marginy: GRAPH_MARGIN,
-  });
-  graph.setDefaultEdgeLabel(() => ({}));
-
   const fileIdByNodeId = new Map<string, string>();
+  const files: { id: string; width: number; height: number }[] = [];
   for (const node of elements.nodes) {
     fileIdByNodeId.set(node.id, node.parentId ?? node.id);
     if (node.type === 'file') {
-      graph.setNode(node.id, { width: node.width ?? 0, height: node.height ?? 0 });
+      files.push({ id: node.id, width: node.width ?? 0, height: node.height ?? 0 });
     }
   }
-  for (const [source, target] of projectEdgesToFiles(elements.edges, fileIdByNodeId)) {
-    graph.setEdge(source, target);
-  }
 
-  dagre.layout(graph);
+  const positions = layoutLayered(files, projectEdgesToFiles(elements.edges, fileIdByNodeId), {
+    direction: options.rankDirection,
+    nodeSeparation: options.nodeSeparation,
+    rankSeparation: options.rankSeparation,
+    sweeps: options.sweeps,
+  });
 
   const positioned = elements.nodes.map((node) => {
-    if (node.type !== 'file') {
-      return node;
-    }
-    // dagre reports the center of each node; React Flow expects the top-left corner.
-    const { x = 0, y = 0 } = graph.node(node.id);
-    return { ...node, position: { x: x - (node.width ?? 0) / 2, y: y - (node.height ?? 0) / 2 } };
+    const position = node.type === 'file' ? positions.get(node.id) : undefined;
+    return position === undefined ? node : { ...node, position };
   });
 
   return options.rankDirection === 'LR'
@@ -173,9 +161,9 @@ export function stackedHeight(heights: readonly number[], gap: number): number {
  * block is centered on the original column center.
  *
  * @remarks Assumes a left-to-right layout where every file in a rank shares
- * the same `x` (true for dagre, since all file containers have equal width).
+ * the same `x` (true for the layered layout, since all file containers have equal width).
  *
- * @param nodes - Nodes with dagre positions.
+ * @param nodes - Nodes positioned by the layered layout.
  * @param maxColumnHeight - Maximum stacked height of a column.
  * @param rowGap - Vertical gap between restacked files.
  * @returns A new node array with wrapped file positions.
@@ -211,7 +199,7 @@ export function wrapTallColumns(
     }
 
     // Center the wrapped block on the original column center, so it stays
-    // aligned with the neighbouring (unsplit) columns that dagre centered too.
+    // aligned with the neighbouring (unsplit) columns, which are centered too.
     const originalTop = Math.min(...stacked.map((node) => node.position.y));
     const originalBottom = Math.max(...stacked.map((node) => node.position.y + (node.height ?? 0)));
     const blockHeight = Math.max(

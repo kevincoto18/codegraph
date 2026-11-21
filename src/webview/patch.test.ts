@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { GraphSnapshot } from '../shared';
-import { addClassToNodes, applyPatch, classifyPatch, getChangedNodeIds, mergeById } from './patch';
+import { applyPatch, classifyPatch, getChangedNodeIds, mergeById } from './patch';
 import { callEdge, fileNode, functionNode, makePatch } from './testFixtures';
 
 /** `a.ts` with `run` (line 1) calling `stop` (line 5). */
@@ -81,16 +81,5 @@ describe('getChangedNodeIds', () => {
       ],
     });
     expect(getChangedNodeIds(SNAPSHOT, patch)).toEqual(new Set(['a.ts#stop', 'a.ts#init']));
-  });
-});
-
-describe('addClassToNodes', () => {
-  it('appends a class to selected nodes only', () => {
-    const nodes = [{ id: 'a', className: 'cg-match' }, { id: 'b' }];
-    expect(addClassToNodes(nodes, new Set(), 'x')).toBe(nodes);
-    expect(addClassToNodes(nodes, new Set(['a', 'b']), 'cg-changed')).toEqual([
-      { id: 'a', className: 'cg-match cg-changed' },
-      { id: 'b', className: 'cg-changed' },
-    ]);
   });
 });

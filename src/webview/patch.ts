@@ -109,24 +109,3 @@ export function getChangedNodeIds(previous: GraphSnapshot, patch: GraphPatch): S
   }
   return changed;
 }
-
-/**
- * Appends a CSS class to the nodes whose id is in a set.
- *
- * @param nodes - Nodes to decorate.
- * @param ids - Ids of the nodes to mark.
- * @param className - Class to append.
- * @returns The same array if no node is marked, otherwise decorated copies.
- */
-export function addClassToNodes<T extends { readonly id: string; readonly className?: string }>(
-  nodes: readonly T[],
-  ids: ReadonlySet<string>,
-  className: string,
-): readonly T[] {
-  if (ids.size === 0) {
-    return nodes;
-  }
-  return nodes.map((node) =>
-    ids.has(node.id) ? { ...node, className: `${node.className ?? ''} ${className}`.trim() } : node,
-  );
-}

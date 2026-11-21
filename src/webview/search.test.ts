@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphSnapshot } from '../shared';
 import {
-  decorateEdges,
-  decorateNodes,
   formatMatchCount,
   getSearchRole,
+  searchClassOfEdge,
+  searchClassOfNode,
   matchNodes,
   normalizeQuery,
 } from './search';
@@ -103,26 +103,19 @@ describe('search decoration', () => {
     expect(getSearchRole('src/db.ts', search)).toBe('dimmed');
   });
 
-  it('adds classes to nodes only while searching', () => {
-    const nodes = [{ id: 'src/user.ts#saveUser' }, { id: 'src/user.ts' }, { id: 'src/db.ts' }];
-    expect(decorateNodes(nodes, null)).toBe(nodes);
-    expect(decorateNodes(nodes, search)).toEqual([
-      { id: 'src/user.ts#saveUser', className: 'cg-match' },
-      { id: 'src/user.ts', className: 'cg-context' },
-      { id: 'src/db.ts', className: 'cg-dimmed' },
-    ]);
+  it('resolves node classes only while searching', () => {
+    expect(searchClassOfNode('src/user.ts#saveUser', null)).toBeUndefined();
+    expect(searchClassOfNode('src/user.ts#saveUser', search)).toBe('cg-match');
+    expect(searchClassOfNode('src/user.ts', search)).toBe('cg-context');
+    expect(searchClassOfNode('src/db.ts', search)).toBe('cg-dimmed');
   });
 
   it('dims edges unless both endpoints are highlighted', () => {
-    const edges = [
-      { source: 'src/user.ts', target: 'src/user.ts#saveUser', className: 'cg-edge' },
-      { source: 'src/user.ts', target: 'src/db.ts', className: 'cg-edge' },
-    ];
-    expect(decorateEdges(edges, null)).toBe(edges);
-    expect(decorateEdges(edges, search).map((edge) => edge.className)).toEqual([
-      'cg-edge',
-      'cg-edge cg-dimmed',
-    ]);
+    const inside = { source: 'src/user.ts', target: 'src/user.ts#saveUser' };
+    const outside = { source: 'src/user.ts', target: 'src/db.ts' };
+    expect(searchClassOfEdge(outside, null)).toBeUndefined();
+    expect(searchClassOfEdge(inside, search)).toBeUndefined();
+    expect(searchClassOfEdge(outside, search)).toBe('cg-dimmed');
   });
 });
 

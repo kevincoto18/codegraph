@@ -13,20 +13,20 @@
 
 ## Features
 
-| Feature           | Details                                                                                                                                                                       |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Static analysis   | TypeScript Compiler API (`ts.createSourceFile`), no type checker, no LLM                                                                                                      |
-| Languages         | `.ts`, `.tsx`, `.js`, `.jsx` (`.d.ts` skipped); `node_modules`, `dist`, `build`, `.git` ignored                                                                               |
-| Imports           | ES default / named (aliased) / namespace / side-effect, re-exports, `require`, `import x = require()`                                                                         |
-| Functions         | Declarations, arrow & function expressions assigned to variables, class methods, constructors, arrow class properties, anonymous default exports, CommonJS exported functions |
-| Calls             | `foo()`, `ns.foo()`, `this.foo()`, `Class.staticMethod()` — local or imported (ES and CommonJS)                                                                               |
-| Navigation        | Click a file or function to open it at its line, in a column next to the graph                                                                                                |
-| Large projects    | Auto-collapse above 400 functions, tall dagre ranks wrapped into sub-columns, only visible elements rendered                                                                  |
-| Collapse / expand | Per file or all at once; calls of collapsed files are merged into `×n` edges                                                                                                  |
-| Search            | By file path or function name; matches highlighted, Enter zooms to them, Escape clears                                                                                        |
-| Live updates      | Saves, external edits, created/deleted files and folders → debounced per file → incremental patch                                                                             |
-| Layout stability  | Live patches keep file positions (including manual drags), collapsed files, search and viewport                                                                               |
-| Cache             | Per-file SHA-256 content hash; unchanged files are never re-parsed                                                                                                            |
+| Feature           | Details                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Static analysis   | TypeScript Compiler API (`ts.createSourceFile`), no type checker, no LLM                                                                                                             |
+| Languages         | `.ts`, `.tsx`, `.js`, `.jsx` (`.d.ts` skipped); `node_modules`, `dist`, `build`, `.git` ignored                                                                                      |
+| Imports           | ES default / named (aliased) / namespace / side-effect, re-exports, `require`, `import x = require()`                                                                                |
+| Functions         | Declarations, arrow & function expressions assigned to variables, class methods, constructors, arrow class properties, anonymous default exports, CommonJS exported functions        |
+| Calls             | `foo()`, `ns.foo()`, `this.foo()`, `Class.staticMethod()` — local or imported (ES and CommonJS)                                                                                      |
+| Navigation        | Click a file or function to open it at its line, in a column next to the graph                                                                                                       |
+| Large projects    | Auto-collapse above 400 functions, linear layered layout (tall ranks wrapped into sub-columns), level of detail when zoomed out, auto-hidden minimap, only visible elements rendered |
+| Collapse / expand | Per file or all at once; calls of collapsed files are merged into `×n` edges                                                                                                         |
+| Search            | By file path or function name; matches highlighted, Enter zooms to them, Escape clears                                                                                               |
+| Live updates      | Saves, external edits, created/deleted files and folders → debounced per file → incremental patch                                                                                    |
+| Layout stability  | Live patches keep file positions (including manual drags), collapsed files, search and viewport                                                                                      |
+| Cache             | Per-file SHA-256 content hash; unchanged files are never re-parsed                                                                                                                   |
 
 ## Requirements
 
@@ -84,7 +84,7 @@ flowchart LR
   subgraph Webview["Webview (React)"]
     direction TB
     CHANNEL[useGraphChannel<br/>reducer + applyPatch] --> VIEW[GraphView<br/>collapse · search · layout]
-    VIEW --> FLOW[React Flow + dagre]
+    VIEW --> FLOW[React Flow + layered layout]
   end
   PANEL <-- "postMessage<br/>ready · graph/init · graph/patch · status · navigate · refresh" --> CHANNEL
 ```

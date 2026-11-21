@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { memo } from 'react';
 
 import type { FunctionKind } from '../../shared';
+import { useLowDetail } from '../canvasOptions';
 import type { FunctionFlowNode } from '../flowTypes';
 
 /** Short symbol shown for each function kind. */
@@ -14,12 +15,22 @@ const KIND_BADGES: Readonly<Record<FunctionKind, string>> = {
 };
 
 /**
- * Renders a function row inside its file container.
+ * Renders a function row inside its file container. When zoomed out it is
+ * drawn as an empty bar (level of detail).
  *
  * @param props - React Flow node props.
  * @returns The function node element.
  */
 function FunctionNodeView({ data }: NodeProps<FunctionFlowNode>): JSX.Element {
+  const lowDetail = useLowDetail();
+  if (lowDetail) {
+    return (
+      <div className={`cg-fn cg-fn--lod cg-fn--${data.functionKind}`}>
+        <Handle type="target" position={Position.Left} isConnectable={false} />
+        <Handle type="source" position={Position.Right} isConnectable={false} />
+      </div>
+    );
+  }
   return (
     <div
       className={`cg-fn cg-fn--${data.functionKind}`}

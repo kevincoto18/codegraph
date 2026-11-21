@@ -12,12 +12,15 @@ import { GraphCanvas } from './GraphCanvas';
 import type { GraphChange } from './graphChannel';
 import { summarizeGraph } from './graphChannel';
 import { reportMetric } from './metrics';
-import { addClassToNodes } from './patch';
+import type { MinimapPreference } from './canvasOptions';
+import { shouldShowMinimap } from './canvasOptions';
+import { ClassNameDecorator, joinClassNames } from './decorate';
 import { SearchBox } from './SearchBox';
-import { decorateEdges, decorateNodes, matchNodes } from './search';
+import { matchNodes, searchClassOfEdge, searchClassOfNode } from './search';
 import { StatusBar } from './StatusBar';
 import type { ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
+import { useDebouncedValue } from './useDebouncedValue';
 
 /** Props of {@link GraphView}. */
 interface GraphViewProps {
@@ -43,6 +46,9 @@ const SEARCH_MAX_ZOOM = 1.5;
 
 /** How long changed nodes stay highlighted after a patch, in milliseconds. */
 const CHANGE_HIGHLIGHT_MS = 1500;
+
+/** Quiet period before a search query is applied, in milliseconds. */
+const SEARCH_DEBOUNCE_MS = 150;
 
 /** Shared empty set used when no node is highlighted. */
 const NO_IDS: ReadonlySet<string> = new Set();
@@ -113,6 +119,11 @@ function GraphViewContent({
   }
   const [layoutRequest, setLayoutRequest] = useState(0);
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
+  const [minimapPreference, setMinimapPreference] = useState<MinimapPreference>('auto');
+  // Decorators reuse unchanged node/edge objects so React Flow skips re-rendering them.
+  const [nodeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowNode>());
+  const [edgeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowEdge>());
   const [expiredChangeVersion, setExpiredChangeVersion] = useState(0);
   /** Viewport fit to perform once the next layout has been rendered. */
   const pendingFitRef = useRef<FitViewOptions<CodeGraphFlowNode> | null>(null);
@@ -133,15 +144,22 @@ function GraphViewContent({
   const highlightedChangeIds =
     lastChange !== null && lastChange.version > expiredChangeVersion ? lastChange.nodeIds : NO_IDS;
 
-  const search = useMemo(() => matchNodes(snapshot, query), [snapshot, query]);
+  const search = useMemo(() => matchNodes(snapshot, debouncedQuery), [snapshot, debouncedQuery]);
   const displayedNodes = useMemo(
-    () => addClassToNodes(decorateNodes(current.nodes, search), highlightedChangeIds, 'cg-changed'),
-    [current.nodes, search, highlightedChangeIds],
+    () =>
+      nodeDecorator.apply(current.nodes, (node) =>
+        joinClassNames(
+          searchClassOfNode(node.id, search),
+          highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
+        ),
+      ),
+    [nodeDecorator, current.nodes, search, highlightedChangeIds],
   );
   const displayedEdges = useMemo(
-    () => decorateEdges(current.edges, search),
-    [current.edges, search],
+    () => edgeDecorator.apply(current.edges, (edge) => searchClassOfEdge(edge, search)),
+    [edgeDecorator, current.edges, search],
   );
+  const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
   const summary = useMemo(() => summarizeGraph(snapshot), [snapshot]);
 
   // Report each recomputed layout once (dragging nodes does not recompute it).
@@ -233,11 +251,13 @@ function GraphViewContent({
   }, []);
 
   const zoomToMatches = useCallback(() => {
-    if (search === null) {
+    // Match the latest query directly: Enter may arrive before the debounce settles.
+    const latest = matchNodes(snapshot, query);
+    if (latest === null) {
       return;
     }
     const visibleIds = new Set(current.nodes.map((node) => node.id));
-    const targets = [...search.highlightedIds].filter((id) => visibleIds.has(id));
+    const targets = [...latest.highlightedIds].filter((id) => visibleIds.has(id));
     if (targets.length > 0) {
       void fitView({
         nodes: targets.map((id) => ({ id })),
@@ -245,7 +265,11 @@ function GraphViewContent({
         maxZoom: SEARCH_MAX_ZOOM,
       });
     }
-  }, [search, current.nodes, fitView]);
+  }, [snapshot, query, current.nodes, fitView]);
+
+  const toggleMinimap = useCallback(() => {
+    setMinimapPreference(showMinimap ? 'off' : 'on');
+  }, [showMinimap]);
 
   const actions = useMemo<GraphActions>(() => ({ toggleFile }), [toggleFile]);
 
@@ -277,6 +301,15 @@ function GraphViewContent({
         >
           Re-layout
         </button>
+        <button
+          type="button"
+          className="cg-toolbar__button"
+          onClick={toggleMinimap}
+          aria-pressed={showMinimap}
+          title="Show or hide the minimap (hidden automatically on large graphs)"
+        >
+          Minimap
+        </button>
       </StatusBar>
       <main className="cg-canvas">
         <GraphCanvas
@@ -284,6 +317,7 @@ function GraphViewContent({
           edges={displayedEdges}
           onNodesChange={onNodesChange}
           onNodeClick={handleNodeClick}
+          showMinimap={showMinimap}
         />
       </main>
     </GraphActionsContext>

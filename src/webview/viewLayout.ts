@@ -13,7 +13,7 @@ export interface ViewLayoutState {
   readonly collapsedFileIds: ReadonlySet<string>;
   /** Incremented to request a full re-layout. */
   readonly layoutRequest: number;
-  /** How the nodes were positioned: full dagre layout or incremental merge. */
+  /** How the nodes were positioned: full layered layout or incremental merge. */
   readonly mode: 'full' | 'incremental';
   readonly nodes: CodeGraphFlowNode[];
   readonly edges: CodeGraphFlowEdge[];

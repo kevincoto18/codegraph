@@ -352,3 +352,23 @@ body {
 .react-flow__node.cg-changed .cg-file {
   animation: cg-changed-pulse 1.5s ease-out;
 }
+
+/* Level of detail: cheaper rendering while zoomed out. */
+.cg-lod .react-flow__edge-path {
+  marker-end: none;
+  stroke-dasharray: none;
+}
+
+.cg-lod .react-flow__edge-textwrapper,
+.cg-lod .react-flow__edge-text,
+.cg-lod .react-flow__edge-textbg {
+  display: none;
+}
+
+.cg-file--lod .cg-file__name {
+  font-size: 18px;
+}
+
+.cg-fn--lod {
+  opacity: 0.5;
+}

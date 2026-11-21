@@ -70,43 +70,35 @@ export function getSearchRole(nodeId: string, search: SearchResult): SearchRole 
 }
 
 /**
- * Adds search CSS classes to nodes: `cg-match` for matches, `cg-context` for
- * files that contain matches, `cg-dimmed` for everything else.
+ * Resolves the search CSS class of a node.
  *
- * @param nodes - Nodes to decorate.
+ * @param nodeId - Node id.
  * @param search - Active search, or `null` when no search is active.
- * @returns The same array when no search is active, otherwise decorated copies.
+ * @returns `cg-match`, `cg-context` or `cg-dimmed`, or `undefined` without search.
  */
-export function decorateNodes<T extends { readonly id: string }>(
-  nodes: readonly T[],
-  search: SearchResult | null,
-): readonly T[] {
-  if (search === null) {
-    return nodes;
-  }
-  return nodes.map((node) => {
-    return { ...node, className: `cg-${getSearchRole(node.id, search)}` };
-  });
+export function searchClassOfNode(nodeId: string, search: SearchResult | null): string | undefined {
+  return search === null ? undefined : `cg-${getSearchRole(nodeId, search)}`;
 }
 
 /**
- * Dims edges whose endpoints are not both highlighted by the search.
+ * Resolves the search CSS class of an edge: dimmed unless both endpoints are highlighted.
  *
- * @param edges - Edges to decorate.
+ * @param edge - Edge endpoints.
+ * @param edge.source - Source node id.
+ * @param edge.target - Target node id.
  * @param search - Active search, or `null` when no search is active.
- * @returns The same array when no search is active, otherwise decorated copies.
+ * @returns `cg-dimmed` or `undefined`.
  */
-export function decorateEdges<
-  T extends { readonly source: string; readonly target: string; readonly className?: string },
->(edges: readonly T[], search: SearchResult | null): readonly T[] {
+export function searchClassOfEdge(
+  edge: { readonly source: string; readonly target: string },
+  search: SearchResult | null,
+): string | undefined {
   if (search === null) {
-    return edges;
+    return undefined;
   }
-  return edges.map((edge) => {
-    const visible =
-      search.highlightedIds.has(edge.source) && search.highlightedIds.has(edge.target);
-    return visible ? edge : { ...edge, className: `${edge.className ?? ''} cg-dimmed`.trim() };
-  });
+  return search.highlightedIds.has(edge.source) && search.highlightedIds.has(edge.target)
+    ? undefined
+    : 'cg-dimmed';
 }
 
 /**

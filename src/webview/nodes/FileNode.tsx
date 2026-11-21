@@ -3,6 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import type { JSX } from 'react';
 import { memo } from 'react';
 
+import { useLowDetail } from '../canvasOptions';
 import type { FileFlowNode } from '../flowTypes';
 import { useGraphActions } from '../graphActions';
 
@@ -31,6 +32,7 @@ export function getDirectory(filePath: string): string {
 /**
  * Renders a file container: a header with a collapse toggle, the file name,
  * directory and function count. Function nodes are rendered inside by React Flow.
+ * When zoomed out only the file name is drawn (level of detail).
  *
  * @param props - React Flow node props.
  * @returns The file node element.
@@ -39,6 +41,21 @@ function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
   const { toggleFile } = useGraphActions();
   const extension = getLanguageBadge(data.filePath);
   const directory = getDirectory(data.filePath);
+  const lowDetail = useLowDetail();
+  if (lowDetail) {
+    return (
+      <div
+        className={`cg-file cg-file--lod${data.collapsed ? ' cg-file--collapsed' : ''}`}
+        title={data.filePath}
+      >
+        <Handle type="target" position={Position.Left} isConnectable={false} />
+        <div className="cg-file__header">
+          <span className="cg-file__name">{data.label}</span>
+        </div>
+        <Handle type="source" position={Position.Right} isConnectable={false} />
+      </div>
+    );
+  }
   return (
     <div className={`cg-file${data.collapsed ? ' cg-file--collapsed' : ''}`} title={data.filePath}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
