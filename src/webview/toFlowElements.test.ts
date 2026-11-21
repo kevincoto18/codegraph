@@ -117,7 +117,7 @@ describe('toFlowElements', () => {
       position: { x: 0, y: 0 },
       width: FILE_NODE_WIDTH,
       height: getFileNodeHeight(2),
-      data: { label: 'a.ts', filePath: 'src/a.ts', line: 1, functionCount: 2 },
+      data: { label: 'a.ts', filePath: 'src/a.ts', line: 1, functionCount: 2, collapsed: false },
     });
   });
 
@@ -150,7 +150,7 @@ describe('toFlowElements', () => {
       source: 'src/a.ts#run',
       target: 'src/b.ts#help',
       markerEnd: { type: 'arrowclosed' },
-      data: { kind: 'call' },
+      data: { kind: 'call', count: 1 },
     });
   });
 
@@ -172,5 +172,47 @@ describe('toFlowElements', () => {
     const result = toFlowElements(snapshot);
     expect(result.nodes).toHaveLength(1);
     expect(result.nodes[0]?.data).toMatchObject({ functionCount: 0 });
+  });
+});
+
+describe('toFlowElements — collapsed files', () => {
+  const { nodes, edges } = toFlowElements(SNAPSHOT, new Set(['src/a.ts']));
+
+  it('renders only the header of collapsed files and hides their functions', () => {
+    expect(nodes.map((node) => node.id)).toEqual(['src/a.ts', 'src/b.ts', 'src/b.ts#help']);
+    expect(nodes[0]).toMatchObject({
+      height: FILE_HEADER_HEIGHT,
+      data: { collapsed: true, functionCount: 2 },
+    });
+  });
+
+  it('re-routes calls of hidden functions to their file', () => {
+    expect(edges.map((edge) => [edge.id, edge.source, edge.target])).toEqual([
+      ['import:src/a.ts->src/b.ts', 'src/a.ts', 'src/b.ts'],
+      ['call:src/a.ts->src/b.ts#help', 'src/a.ts', 'src/b.ts#help'],
+    ]);
+  });
+
+  it('labels merged edges with their count', () => {
+    const snapshot: GraphSnapshot = {
+      ...SNAPSHOT,
+      edges: [
+        {
+          id: 'call:src/a.ts#run->src/b.ts#help',
+          kind: 'call',
+          source: 'src/a.ts#run',
+          target: 'src/b.ts#help',
+        },
+        {
+          id: 'call:src/a.ts#Svc.go->src/b.ts#help',
+          kind: 'call',
+          source: 'src/a.ts#Svc.go',
+          target: 'src/b.ts#help',
+        },
+      ],
+    };
+    const [merged] = toFlowElements(snapshot, new Set(['src/a.ts'])).edges;
+    expect(merged).toMatchObject({ label: '×2', data: { kind: 'call', count: 2 } });
+    expect(toFlowElements(snapshot).edges[0]).not.toHaveProperty('label');
   });
 });

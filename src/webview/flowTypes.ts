@@ -16,6 +16,8 @@ interface NavigableNodeData extends Record<string, unknown> {
 /** Data of a file container node. */
 export interface FileNodeData extends NavigableNodeData {
   readonly functionCount: number;
+  /** Whether the file's functions are hidden. */
+  readonly collapsed: boolean;
 }
 
 /** Data of a function node. */
@@ -36,6 +38,8 @@ export type CodeGraphFlowNode = FileFlowNode | FunctionFlowNode;
 /** Data carried by every edge. */
 export interface CodeGraphEdgeData extends Record<string, unknown> {
   readonly kind: EdgeKind;
+  /** Number of model edges merged into this edge (more than 1 when files are collapsed). */
+  readonly count: number;
 }
 
 /** Any edge of the canvas. */

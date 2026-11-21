@@ -1,0 +1,27 @@
+/**
+ * React context exposing graph actions to custom node components.
+ */
+import { createContext, useContext } from 'react';
+
+/** Actions node components can trigger. */
+export interface GraphActions {
+  /** Collapses or expands a file container. */
+  readonly toggleFile: (fileId: string) => void;
+}
+
+/** Context carrying the graph actions; provided by `GraphView`. */
+export const GraphActionsContext = createContext<GraphActions | null>(null);
+
+/**
+ * Returns the graph actions of the nearest provider.
+ *
+ * @returns The graph actions.
+ * @throws Error if used outside a `GraphActionsContext` provider.
+ */
+export function useGraphActions(): GraphActions {
+  const actions = useContext(GraphActionsContext);
+  if (actions === null) {
+    throw new Error('useGraphActions must be used inside GraphActionsContext.');
+  }
+  return actions;
+}

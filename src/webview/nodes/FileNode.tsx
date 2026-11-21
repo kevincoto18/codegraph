@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { memo } from 'react';
 
 import type { FileFlowNode } from '../flowTypes';
+import { useGraphActions } from '../graphActions';
 
 /**
  * Returns the short language badge of a file.
@@ -28,19 +29,34 @@ export function getDirectory(filePath: string): string {
 }
 
 /**
- * Renders a file container: a header with the file name, directory and
- * function count. Function nodes are rendered inside by React Flow.
+ * Renders a file container: a header with a collapse toggle, the file name,
+ * directory and function count. Function nodes are rendered inside by React Flow.
  *
  * @param props - React Flow node props.
  * @returns The file node element.
  */
-function FileNodeView({ data }: NodeProps<FileFlowNode>): JSX.Element {
+function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
+  const { toggleFile } = useGraphActions();
   const extension = getLanguageBadge(data.filePath);
   const directory = getDirectory(data.filePath);
   return (
-    <div className="cg-file" title={data.filePath}>
+    <div className={`cg-file${data.collapsed ? ' cg-file--collapsed' : ''}`} title={data.filePath}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <div className="cg-file__header">
+        <button
+          type="button"
+          className="cg-file__toggle nodrag"
+          aria-label={data.collapsed ? 'Expand file' : 'Collapse file'}
+          aria-expanded={!data.collapsed}
+          disabled={data.functionCount === 0}
+          onClick={(event) => {
+            // Toggling must not also trigger the node's navigate-on-click.
+            event.stopPropagation();
+            toggleFile(id);
+          }}
+        >
+          {data.collapsed ? '▸' : '▾'}
+        </button>
         <span className={`cg-file__badge cg-file__badge--${extension.toLowerCase()}`}>
           {extension}
         </span>

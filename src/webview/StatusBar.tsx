@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 
 import type { AnalysisState } from '../shared';
 import type { GraphSummary } from './graphChannel';
@@ -11,6 +11,8 @@ interface StatusBarProps {
   readonly summary: GraphSummary | null;
   /** Requests a full rescan. */
   readonly onRefresh: () => void;
+  /** Extra controls rendered before the refresh button. */
+  readonly children?: ReactNode;
 }
 
 /**
@@ -40,9 +42,10 @@ export function formatStatus(
 }
 
 /**
- * Toolbar with the analysis status, graph counters and a refresh button.
+ * Toolbar with the analysis status, graph counters, optional controls and a
+ * refresh button.
  *
- * @param props - Status, counters and refresh callback.
+ * @param props - Status, counters, controls and refresh callback.
  * @returns The toolbar element.
  */
 export function StatusBar({
@@ -50,6 +53,7 @@ export function StatusBar({
   errorMessage,
   summary,
   onRefresh,
+  children,
 }: StatusBarProps): JSX.Element {
   return (
     <header className={`cg-toolbar cg-toolbar--${status}`}>
@@ -57,6 +61,7 @@ export function StatusBar({
       <span className="cg-toolbar__status" role="status">
         {formatStatus(status, errorMessage, summary)}
       </span>
+      {children}
       <button
         type="button"
         className="cg-toolbar__button"

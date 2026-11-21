@@ -3,7 +3,9 @@
  */
 import { MarkerType } from '@xyflow/react';
 
-import type { FileGraphNode, FunctionGraphNode, GraphEdge, GraphSnapshot } from '../shared';
+import type { FileGraphNode, FunctionGraphNode, GraphSnapshot } from '../shared';
+import type { RoutedEdge } from './collapse';
+import { routeEdges } from './collapse';
 import type {
   CodeGraphFlowEdge,
   CodeGraphFlowNode,
@@ -27,8 +29,11 @@ export const FUNCTION_ROW_GAP = 4;
 /** Inner padding of a file container, in pixels. */
 export const FILE_PADDING = 8;
 
+/** Shared empty set used when nothing is collapsed. */
+const NO_COLLAPSED_FILES: ReadonlySet<string> = new Set();
+
 /**
- * Computes the height of a file container from its number of functions.
+ * Computes the height of an expanded file container from its number of functions.
  *
  * @param functionCount - Number of functions rendered inside the file.
  * @returns Height in pixels.
@@ -44,12 +49,17 @@ export function getFileNodeHeight(functionCount: number): number {
 /**
  * Converts a snapshot into unpositioned React Flow elements. File nodes are
  * placed at the origin (the layout positions them); function nodes get their
- * final position relative to their file.
+ * final position relative to their file. Collapsed files render only their
+ * header and their edges are re-routed to the file node.
  *
  * @param snapshot - Graph snapshot.
+ * @param collapsedFileIds - Ids of the files whose functions are hidden.
  * @returns Nodes (each parent before its children) and edges.
  */
-export function toFlowElements(snapshot: GraphSnapshot): FlowElements {
+export function toFlowElements(
+  snapshot: GraphSnapshot,
+  collapsedFileIds: ReadonlySet<string> = NO_COLLAPSED_FILES,
+): FlowElements {
   const functionsById = new Map<string, FunctionGraphNode>();
   for (const node of snapshot.nodes) {
     if (node.kind === 'function') {
@@ -58,6 +68,9 @@ export function toFlowElements(snapshot: GraphSnapshot): FlowElements {
   }
 
   const nodes: CodeGraphFlowNode[] = [];
+  /** Visible node standing for each model node id. */
+  const visibleIdByNodeId = new Map<string, string>();
+
   for (const node of snapshot.nodes) {
     if (node.kind !== 'file') {
       continue;
@@ -65,17 +78,19 @@ export function toFlowElements(snapshot: GraphSnapshot): FlowElements {
     const functions = node.functionIds
       .map((id) => functionsById.get(id))
       .filter((fn): fn is FunctionGraphNode => fn !== undefined);
-    nodes.push(createFileFlowNode(node, functions.length));
+    const collapsed = collapsedFileIds.has(node.id);
+
+    nodes.push(createFileFlowNode(node, functions.length, collapsed));
+    visibleIdByNodeId.set(node.id, node.id);
     functions.forEach((fn, index) => {
-      nodes.push(createFunctionFlowNode(fn, index));
+      visibleIdByNodeId.set(fn.id, collapsed ? node.id : fn.id);
+      if (!collapsed) {
+        nodes.push(createFunctionFlowNode(fn, index));
+      }
     });
   }
 
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = snapshot.edges
-    .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
-    .map(createFlowEdge);
-
+  const edges = routeEdges(snapshot.edges, (id) => visibleIdByNodeId.get(id)).map(createFlowEdge);
   return { nodes, edges };
 }
 
@@ -83,17 +98,22 @@ export function toFlowElements(snapshot: GraphSnapshot): FlowElements {
  * Creates the React Flow node of a file.
  *
  * @param file - File node of the model.
- * @param functionCount - Number of functions rendered inside it.
+ * @param functionCount - Number of functions declared in the file.
+ * @param collapsed - Whether the functions are hidden.
  * @returns The file container node, at the origin.
  */
-function createFileFlowNode(file: FileGraphNode, functionCount: number): FileFlowNode {
+function createFileFlowNode(
+  file: FileGraphNode,
+  functionCount: number,
+  collapsed: boolean,
+): FileFlowNode {
   return {
     id: file.id,
     type: 'file',
     position: { x: 0, y: 0 },
     width: FILE_NODE_WIDTH,
-    height: getFileNodeHeight(functionCount),
-    data: { label: file.label, filePath: file.filePath, line: file.line, functionCount },
+    height: collapsed ? FILE_HEADER_HEIGHT : getFileNodeHeight(functionCount),
+    data: { label: file.label, filePath: file.filePath, line: file.line, functionCount, collapsed },
   };
 }
 
@@ -128,18 +148,20 @@ function createFunctionFlowNode(fn: FunctionGraphNode, index: number): FunctionF
 }
 
 /**
- * Creates the React Flow edge of a model edge.
+ * Creates the React Flow edge of a routed edge.
  *
- * @param edge - Edge of the model.
- * @returns The styled edge (dashed for imports, solid for calls).
+ * @param edge - Edge between visible nodes.
+ * @returns The styled edge (dashed for imports, solid for calls), labelled
+ *   `×n` when it stands for several model edges.
  */
-function createFlowEdge(edge: GraphEdge): CodeGraphFlowEdge {
+function createFlowEdge(edge: RoutedEdge): CodeGraphFlowEdge {
   return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
     className: `cg-edge cg-edge--${edge.kind}`,
     markerEnd: { type: MarkerType.ArrowClosed },
-    data: { kind: edge.kind },
+    ...(edge.count > 1 ? { label: `×${String(edge.count)}` } : {}),
+    data: { kind: edge.kind, count: edge.count },
   };
 }

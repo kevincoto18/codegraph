@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import type { FileGraphNode, GraphEdge, GraphSnapshot } from '../shared';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
-import { buildFlowGraph, layoutFileNodes, projectEdgesToFiles } from './layout';
+import {
+  DEFAULT_LAYOUT_OPTIONS,
+  buildFlowGraph,
+  chunkByHeight,
+  layoutFileNodes,
+  projectEdgesToFiles,
+  stackedHeight,
+  wrapTallColumns,
+} from './layout';
 import { toFlowElements } from './toFlowElements';
 
 /**
@@ -117,9 +125,7 @@ describe('layoutFileNodes', () => {
 
   it('supports a top-to-bottom direction', () => {
     const vertical = buildFlowGraph(CHAIN, {
-      rankDirection: 'TB',
-      nodeSeparation: 40,
-      rankSeparation: 100,
+      layout: { ...DEFAULT_LAYOUT_OPTIONS, rankDirection: 'TB' },
     }).nodes;
     expect(byId(vertical, 'app.ts').position.y).toBeLessThan(
       byId(vertical, 'service.ts').position.y,
@@ -153,5 +159,98 @@ describe('layoutFileNodes', () => {
 
   it('is deterministic', () => {
     expect(buildFlowGraph(CHAIN)).toEqual(buildFlowGraph(CHAIN));
+  });
+});
+
+describe('chunkByHeight', () => {
+  it('groups items without exceeding the maximum stacked height', () => {
+    // 100 + 10 + 100 + 10 + 100 = 320 fits in 350; a fourth item would not.
+    expect(chunkByHeight([100, 100, 100, 100, 100, 100, 100], 350, 10)).toEqual([
+      [0, 1, 2],
+      [3, 4, 5],
+      [6],
+    ]);
+  });
+
+  it('keeps an oversized item alone and handles empty input', () => {
+    expect(chunkByHeight([500, 50], 100, 10)).toEqual([[0], [1]]);
+    expect(chunkByHeight([], 100, 10)).toEqual([]);
+  });
+});
+
+describe('wrapTallColumns', () => {
+  /**
+   * Creates a positioned file node.
+   *
+   * @param id - Node id.
+   * @param x - Left position.
+   * @param y - Top position.
+   * @returns The node.
+   */
+  function placed(id: string, x: number, y: number): CodeGraphFlowNode {
+    return {
+      id,
+      type: 'file',
+      position: { x, y },
+      width: 100,
+      height: 100,
+      data: { label: id, filePath: id, line: 1, functionCount: 0, collapsed: true },
+    };
+  }
+
+  const tallColumn = Array.from({ length: 7 }, (_, i) => placed(`r${String(i)}`, 0, i * 110));
+  const nextColumn = placed('next', 200, 0);
+  const wrapped = wrapTallColumns([...tallColumn, nextColumn], 350, 10);
+
+  it('splits a tall column into side-by-side sub-columns', () => {
+    // Original column spans y 0..760 (center 380); the wrapped block is
+    // 3 × 100 + 2 × 10 = 320 tall, so it starts at 380 - 160 = 220.
+    expect(wrapped.slice(0, 7).map((node) => node.position)).toEqual([
+      { x: 0, y: 220 },
+      { x: 0, y: 330 },
+      { x: 0, y: 440 },
+      { x: 160, y: 220 },
+      { x: 160, y: 330 },
+      { x: 160, y: 440 },
+      { x: 320, y: 220 },
+    ]);
+  });
+
+  it('shifts the following columns to make room', () => {
+    expect(byId(wrapped, 'next').position).toEqual({ x: 200 + 2 * 160, y: 0 });
+  });
+
+  it('computes stacked heights', () => {
+    expect(stackedHeight([], 10)).toBe(0);
+    expect(stackedHeight([100, 50], 10)).toBe(160);
+  });
+
+  it('leaves short columns untouched', () => {
+    const short = [placed('a', 0, 0), placed('b', 0, 110)];
+    expect(wrapTallColumns(short, 1000, 10)).toEqual(short);
+  });
+
+  it('wraps a large fan-in graph into a wide grid', () => {
+    const hub = file('utils.ts');
+    const rules = Array.from({ length: 120 }, (_, i) => file(`rules/r${String(i)}.ts`));
+    const snapshot: GraphSnapshot = {
+      version: 1,
+      nodes: [...rules, hub],
+      edges: rules.map((rule) => imports(rule.id, hub.id)),
+    };
+    const nodes = buildFlowGraph(snapshot).nodes;
+    const ys = nodes.map((node) => node.position.y + (node.height ?? 0));
+    const xs = new Set(nodes.map((node) => Math.round(node.position.x)));
+    expect(Math.max(...ys) - Math.min(...nodes.map((node) => node.position.y))).toBeLessThanOrEqual(
+      DEFAULT_LAYOUT_OPTIONS.maxColumnHeight,
+    );
+    expect(xs.size).toBeGreaterThan(2);
+    for (const a of nodes) {
+      for (const b of nodes) {
+        if (a !== b) {
+          expect(overlaps(a, b)).toBe(false);
+        }
+      }
+    }
   });
 });
