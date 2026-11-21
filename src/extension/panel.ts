@@ -1,0 +1,154 @@
+/**
+ * Webview panel that hosts the CodeGraph React application.
+ */
+import * as vscode from 'vscode';
+
+import type { HostToWebview, WebviewToHost } from '../shared';
+import { isWebviewToHostMessage } from '../shared';
+import { buildWebviewHtml, createNonce } from './webviewHtml';
+
+/** Identifier of the webview panel type. */
+const VIEW_TYPE = 'codegraph.graph';
+
+/** Title shown on the panel tab. */
+const PANEL_TITLE = 'CodeGraph';
+
+/** Path segments of the webview bundle inside the extension. */
+const WEBVIEW_DIST_SEGMENTS = ['dist', 'webview'] as const;
+
+/** Receives validated messages sent by the webview. */
+export type WebviewMessageHandler = (message: WebviewToHost) => void;
+
+/** Logging surface used by the panel. */
+interface PanelLogger {
+  /** Logs a recoverable problem. */
+  warn(message: string): void;
+}
+
+/**
+ * Owns a `WebviewPanel`: renders its HTML, validates incoming messages and
+ * sends typed messages to the webview.
+ */
+export class CodeGraphPanel implements vscode.Disposable {
+  private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
+
+  /**
+   * Wires an existing webview panel.
+   *
+   * @param panel - Underlying VS Code panel.
+   * @param extensionUri - Root URI of the extension (to locate the bundle).
+   * @param onMessage - Handler for validated webview messages.
+   * @param onDispose - Called once when the panel is closed or disposed.
+   * @param logger - Destination of protocol warnings.
+   */
+  private constructor(
+    private readonly panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    onMessage: WebviewMessageHandler,
+    onDispose: () => void,
+    logger: PanelLogger,
+  ) {
+    this.panel.webview.html = this.renderHtml(extensionUri);
+    this.disposables.push(
+      this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+        if (isWebviewToHostMessage(raw)) {
+          onMessage(raw);
+        } else {
+          logger.warn(`Ignored invalid webview message: ${JSON.stringify(raw)}`);
+        }
+      }),
+      this.panel.onDidDispose(() => {
+        this.dispose();
+        onDispose();
+      }),
+    );
+  }
+
+  /** Editor column where the panel is shown, if visible. */
+  public get viewColumn(): vscode.ViewColumn | undefined {
+    return this.panel.viewColumn;
+  }
+
+  /**
+   * Creates and shows a new CodeGraph panel beside the active editor.
+   *
+   * @param extensionUri - Root URI of the extension.
+   * @param onMessage - Handler for validated webview messages.
+   * @param onDispose - Called once when the panel is closed.
+   * @param logger - Destination of protocol warnings.
+   * @returns The new panel.
+   */
+  public static create(
+    extensionUri: vscode.Uri,
+    onMessage: WebviewMessageHandler,
+    onDispose: () => void,
+    logger: PanelLogger,
+  ): CodeGraphPanel {
+    const webviewRoot = vscode.Uri.joinPath(extensionUri, ...WEBVIEW_DIST_SEGMENTS);
+    const panel = vscode.window.createWebviewPanel(
+      VIEW_TYPE,
+      PANEL_TITLE,
+      vscode.ViewColumn.Beside,
+      { enableScripts: true, localResourceRoots: [webviewRoot], retainContextWhenHidden: false },
+    );
+    return new CodeGraphPanel(panel, extensionUri, onMessage, onDispose, logger);
+  }
+
+  /** Brings the panel to the front. */
+  public reveal(): void {
+    this.panel.reveal();
+  }
+
+  /**
+   * Sends a typed message to the webview.
+   *
+   * @param message - Message to deliver.
+   * @returns Whether the message was delivered (false if the panel is gone).
+   */
+  public async post(message: HostToWebview): Promise<boolean> {
+    if (this.disposed) {
+      return false;
+    }
+    return this.panel.webview.postMessage(message);
+  }
+
+  /** Releases the panel and its listeners. Safe to call more than once. */
+  public dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.panel.dispose();
+    for (const disposable of this.disposables.splice(0)) {
+      disposable.dispose();
+    }
+  }
+
+  /**
+   * Renders the webview document with URIs of the bundled assets.
+   *
+   * @param extensionUri - Root URI of the extension.
+   * @returns The HTML document.
+   */
+  private renderHtml(extensionUri: vscode.Uri): string {
+    return buildWebviewHtml({
+      scriptUri: this.getAssetUri(extensionUri, 'index.js'),
+      styleUri: this.getAssetUri(extensionUri, 'index.css'),
+      cspSource: this.panel.webview.cspSource,
+      nonce: createNonce(),
+    });
+  }
+
+  /**
+   * Resolves the webview URI of a file of the webview bundle.
+   *
+   * @param extensionUri - Root URI of the extension.
+   * @param fileName - File name inside `dist/webview`.
+   * @returns The URI the webview can load.
+   */
+  private getAssetUri(extensionUri: vscode.Uri, fileName: string): string {
+    const fileUri = vscode.Uri.joinPath(extensionUri, ...WEBVIEW_DIST_SEGMENTS, fileName);
+    return this.panel.webview.asWebviewUri(fileUri).toString();
+  }
+}

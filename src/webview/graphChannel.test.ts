@@ -1,0 +1,108 @@
+import { describe, expect, it } from 'vitest';
+
+import type { GraphSnapshot } from '../shared';
+import { INITIAL_GRAPH_CHANNEL_STATE, reduceHostMessage, summarizeGraph } from './graphChannel';
+
+/** Snapshot with one file, two functions, one import and one call. */
+const SNAPSHOT: GraphSnapshot = {
+  version: 3,
+  nodes: [
+    {
+      id: 'a.ts',
+      kind: 'file',
+      label: 'a.ts',
+      filePath: 'a.ts',
+      line: 1,
+      functionIds: ['a.ts#x', 'a.ts#y'],
+    },
+    {
+      id: 'a.ts#x',
+      kind: 'function',
+      label: 'x',
+      filePath: 'a.ts',
+      line: 1,
+      fileId: 'a.ts',
+      qualifiedName: 'x',
+      functionKind: 'function',
+      endLine: 1,
+      exported: true,
+    },
+    {
+      id: 'a.ts#y',
+      kind: 'function',
+      label: 'y',
+      filePath: 'a.ts',
+      line: 2,
+      fileId: 'a.ts',
+      qualifiedName: 'y',
+      functionKind: 'arrow',
+      endLine: 2,
+      exported: false,
+    },
+  ],
+  edges: [
+    { id: 'import:a.ts->b.ts', kind: 'import', source: 'a.ts', target: 'b.ts' },
+    { id: 'call:a.ts#x->a.ts#y', kind: 'call', source: 'a.ts#x', target: 'a.ts#y' },
+  ],
+};
+
+describe('reduceHostMessage', () => {
+  it('starts in the analyzing state without a graph', () => {
+    expect(INITIAL_GRAPH_CHANNEL_STATE).toEqual({
+      snapshot: null,
+      status: 'analyzing',
+      errorMessage: null,
+    });
+  });
+
+  it('stores the snapshot and becomes ready on graph/init', () => {
+    const state = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'graph/init',
+      graph: SNAPSHOT,
+    });
+    expect(state).toEqual({ snapshot: SNAPSHOT, status: 'ready', errorMessage: null });
+  });
+
+  it('keeps the current graph while a rescan is analyzing', () => {
+    const ready = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'graph/init',
+      graph: SNAPSHOT,
+    });
+    const analyzing = reduceHostMessage(ready, { type: 'status', state: 'analyzing' });
+    expect(analyzing).toEqual({ snapshot: SNAPSHOT, status: 'analyzing', errorMessage: null });
+  });
+
+  it('records error messages, with a fallback', () => {
+    expect(
+      reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+        type: 'status',
+        state: 'error',
+        message: 'boom',
+      }),
+    ).toMatchObject({ status: 'error', errorMessage: 'boom' });
+    expect(
+      reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, { type: 'status', state: 'error' }),
+    ).toMatchObject({
+      status: 'error',
+      errorMessage: 'Unknown error',
+    });
+  });
+
+  it('leaves the state unchanged on graph/patch (applied in Phase 7)', () => {
+    const patch = {
+      version: 4,
+      upsertNodes: [],
+      removeNodeIds: [],
+      upsertEdges: [],
+      removeEdgeIds: [],
+    };
+    const state = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, { type: 'graph/patch', patch });
+    expect(state).toBe(INITIAL_GRAPH_CHANNEL_STATE);
+  });
+});
+
+describe('summarizeGraph', () => {
+  it('counts nodes and edges by kind', () => {
+    expect(summarizeGraph(SNAPSHOT)).toEqual({ files: 1, functions: 2, imports: 1, calls: 1 });
+  });
+});
