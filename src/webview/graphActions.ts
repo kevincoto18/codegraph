@@ -5,8 +5,8 @@ import { createContext, useContext } from 'react';
 
 /** Actions node components can trigger. */
 export interface GraphActions {
-  /** Collapses or expands a file container. */
-  readonly toggleFile: (fileId: string) => void;
+  /** Collapses or expands a file or folder container. */
+  readonly toggle: (containerId: string) => void;
 }
 
 /** Context carrying the graph actions; provided by `GraphView`. */

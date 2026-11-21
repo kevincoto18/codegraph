@@ -38,7 +38,7 @@ export function getDirectory(filePath: string): string {
  * @returns The file node element.
  */
 function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
-  const { toggleFile } = useGraphActions();
+  const { toggle } = useGraphActions();
   const extension = getLanguageBadge(data.filePath);
   const directory = getDirectory(data.filePath);
   const lowDetail = useLowDetail();
@@ -69,7 +69,7 @@ function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
           onClick={(event) => {
             // Toggling must not also trigger the node's navigate-on-click.
             event.stopPropagation();
-            toggleFile(id);
+            toggle(id);
           }}
         >
           {data.collapsed ? '▸' : '▾'}

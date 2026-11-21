@@ -1,9 +1,12 @@
 /**
- * Pure helpers for collapsing file containers and re-routing edges to the
- * nodes that remain visible.
+ * Pure helpers for collapsing file and folder containers and re-routing edges
+ * to the nodes that remain visible.
  */
 import type { CollapseMode, EdgeKind, GraphEdge, GraphSnapshot } from '../shared';
 import { createEdgeId } from '../shared';
+import type { CodeGraphFlowNode } from './flowTypes';
+import type { FolderTree } from './folders';
+import { getAllFolderIds, getAncestorFolderIds } from './folders';
 
 /** In `auto` mode, above this many functions every file starts collapsed. */
 export const AUTO_COLLAPSE_FUNCTION_THRESHOLD = 400;
@@ -42,6 +45,102 @@ export function getInitialCollapsedFileIds(
     }
   }
   return getAllFileIds(snapshot);
+}
+
+/**
+ * Decides which files and folders start collapsed: every folder (the graph
+ * opens at the top level) plus the files chosen by the collapse mode.
+ *
+ * @param snapshot - Graph snapshot.
+ * @param mode - Collapse mode of files (see {@link getInitialCollapsedFileIds}).
+ * @param folderTree - Folder hierarchy, or `null` without folder view.
+ * @returns Ids of the containers to collapse initially.
+ */
+export function getInitialCollapsedIds(
+  snapshot: GraphSnapshot,
+  mode: CollapseMode,
+  folderTree: FolderTree | null,
+): Set<string> {
+  const collapsed = getInitialCollapsedFileIds(snapshot, mode);
+  if (folderTree !== null) {
+    for (const folderId of folderTree.folders.keys()) {
+      collapsed.add(folderId);
+    }
+  }
+  return collapsed;
+}
+
+/**
+ * Lists every collapsible container: all files and, with folder view, all folders.
+ *
+ * @param snapshot - Graph snapshot.
+ * @param folderTree - Folder hierarchy, or `null` without folder view.
+ * @returns Ids of every file and folder.
+ */
+export function getAllContainerIds(
+  snapshot: GraphSnapshot,
+  folderTree: FolderTree | null,
+): Set<string> {
+  const ids = getAllFileIds(snapshot);
+  if (folderTree !== null) {
+    for (const folderId of getAllFolderIds(folderTree)) {
+      ids.add(folderId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Finds the containers to open for the next level: every visible collapsed
+ * folder or, when no folder is collapsed, every visible collapsed file that
+ * has functions.
+ *
+ * @param nodes - Nodes currently displayed.
+ * @returns Ids to remove from the collapsed set (empty if everything is open).
+ */
+export function getNextLevelToExpand(nodes: readonly CodeGraphFlowNode[]): string[] {
+  const folders = nodes.filter((node) => node.type === 'folder' && node.data.collapsed);
+  if (folders.length > 0) {
+    return folders.map((node) => node.id);
+  }
+  return nodes
+    .filter((node) => node.type === 'file' && node.data.collapsed && node.data.functionCount > 0)
+    .map((node) => node.id);
+}
+
+/**
+ * Lists the containers that must be expanded so nodes become visible: the
+ * file of each function and every folder above each file.
+ *
+ * @param snapshot - Graph snapshot.
+ * @param folderTree - Folder hierarchy, or `null` without folder view.
+ * @param nodeIds - Nodes to reveal.
+ * @returns Ids of the files and folders to expand.
+ */
+export function getIdsToReveal(
+  snapshot: GraphSnapshot,
+  folderTree: FolderTree | null,
+  nodeIds: Iterable<string>,
+): Set<string> {
+  const fileIdOfFunction = new Map<string, string>();
+  for (const node of snapshot.nodes) {
+    if (node.kind === 'function') {
+      fileIdOfFunction.set(node.id, node.fileId);
+    }
+  }
+  const reveal = new Set<string>();
+  for (const nodeId of nodeIds) {
+    const fileId = fileIdOfFunction.get(nodeId);
+    if (fileId !== undefined) {
+      reveal.add(fileId);
+    }
+    if (folderTree !== null) {
+      for (const folderId of getAncestorFolderIds(folderTree, fileId ?? nodeId)) {
+        reveal.add(folderId);
+      }
+    }
+  }
+  return reveal;
 }
 
 /**

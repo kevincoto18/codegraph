@@ -26,6 +26,21 @@ export interface FunctionNodeData extends NavigableNodeData {
   readonly exported: boolean;
 }
 
+/** Data of a folder container node. */
+export interface FolderNodeData extends Record<string, unknown> {
+  /** Displayed name (compacted chains such as `src/extension`). */
+  readonly label: string;
+  /** Workspace-relative folder path. */
+  readonly path: RelPath;
+  /** Number of files in the folder and its sub-folders. */
+  readonly fileCount: number;
+  /** Whether the folder's content is hidden. */
+  readonly collapsed: boolean;
+}
+
+/** Folder container node: holds sub-folders and files. */
+export type FolderFlowNode = Node<FolderNodeData, 'folder'>;
+
 /** File container node. */
 export type FileFlowNode = Node<FileNodeData, 'file'>;
 
@@ -33,12 +48,12 @@ export type FileFlowNode = Node<FileNodeData, 'file'>;
 export type FunctionFlowNode = Node<FunctionNodeData, 'function'>;
 
 /** Any node of the canvas. */
-export type CodeGraphFlowNode = FileFlowNode | FunctionFlowNode;
+export type CodeGraphFlowNode = FolderFlowNode | FileFlowNode | FunctionFlowNode;
 
 /** Data carried by every edge. */
 export interface CodeGraphEdgeData extends Record<string, unknown> {
   readonly kind: EdgeKind;
-  /** Number of model edges merged into this edge (more than 1 when files are collapsed). */
+  /** Number of model edges merged into this edge (more than 1 when files or folders are collapsed). */
   readonly count: number;
 }
 

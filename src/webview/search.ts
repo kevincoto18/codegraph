@@ -2,6 +2,8 @@
  * Pure name search over the graph model.
  */
 import type { GraphSnapshot } from '../shared';
+import type { FolderTree } from './folders';
+import { getAncestorFolderIds } from './folders';
 
 /** Outcome of a search. */
 export interface SearchResult {
@@ -49,6 +51,30 @@ export function matchNodes(snapshot: GraphSnapshot, query: string): SearchResult
     }
   }
   return { matchedIds, highlightedIds };
+}
+
+/**
+ * Adds to a search result the folders that contain highlighted files, so
+ * collapsed folders hiding a match are shown as context instead of dimmed.
+ *
+ * @param search - Search result, or `null` without search.
+ * @param folderTree - Folder hierarchy, or `null` without folder view.
+ * @returns The extended result (the same object when nothing is added).
+ */
+export function withFolderContext(
+  search: SearchResult | null,
+  folderTree: FolderTree | null,
+): SearchResult | null {
+  if (search === null || folderTree === null) {
+    return search;
+  }
+  const highlightedIds = new Set(search.highlightedIds);
+  for (const id of search.highlightedIds) {
+    for (const folderId of getAncestorFolderIds(folderTree, id)) {
+      highlightedIds.add(folderId);
+    }
+  }
+  return { matchedIds: search.matchedIds, highlightedIds };
 }
 
 /** Visual role of an element while a search is active. */

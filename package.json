@@ -55,6 +55,21 @@
             "Every file starts expanded."
           ],
           "description": "Whether file containers start collapsed when the graph is opened."
+        },
+        "codegraph.folderView": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Group files into folders only in large graphs (more than 300 files).",
+            "Always group files into folders.",
+            "Never group files into folders: show every file at the top level."
+          ],
+          "description": "Whether files are grouped into nested folder containers that expand on demand."
         }
       }
     }

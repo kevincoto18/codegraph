@@ -372,3 +372,136 @@ body {
 .cg-fn--lod {
   opacity: 0.5;
 }
+
+/* ---------- Folder node ---------- */
+
+.cg-folder {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--vscode-panel-border, #8886);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vscode-editorWidget-background, #2228) 55%, transparent);
+}
+
+.cg-folder--collapsed {
+  border-style: dashed;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+}
+
+.react-flow__node.selected .cg-folder {
+  border-color: var(--vscode-focusBorder);
+}
+
+.cg-folder__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.cg-folder__toggle {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cg-folder__toggle:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.cg-folder__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--vscode-foreground);
+}
+
+.cg-folder__count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+.cg-folder--lod .cg-folder__name {
+  font-size: 20px;
+}
+
+.react-flow__node.cg-match .cg-folder,
+.react-flow__node.cg-context .cg-folder {
+  border-color: var(--vscode-editor-findMatchHighlightBorder, var(--vscode-charts-yellow, #cca700));
+  border-style: solid;
+}
+
+/* ---------- Toolbar toggles ---------- */
+
+.cg-toolbar__button[aria-pressed='true'] {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-button-background, var(--vscode-button-secondaryBackground));
+  color: var(--vscode-button-foreground, var(--vscode-button-secondaryForeground));
+}
+
+.cg-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---------- Legend ---------- */
+
+.cg-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--vscode-panel-border, #8886);
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cg-legend__line {
+  width: 28px;
+  height: 8px;
+}
+
+.cg-legend__import {
+  stroke: var(--vscode-charts-purple, #b180d7);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.cg-legend__call {
+  stroke: var(--vscode-charts-blue, #3794ff);
+  stroke-width: 2;
+}
+
+.cg-legend__count {
+  width: 28px;
+  text-align: center;
+  color: var(--vscode-foreground);
+}

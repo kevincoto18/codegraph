@@ -55,7 +55,7 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   sessionId: 0,
   outOfSync: false,
   lastChange: null,
-  options: { collapseMode: 'always' },
+  options: { collapseMode: 'always', folderViewMode: 'auto' },
 };
 
 /** Fallback text when the host reports an error without a message. */

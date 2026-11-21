@@ -37,6 +37,7 @@ export function App(): JSX.Element {
           snapshot={snapshot}
           lastChange={lastChange}
           collapseMode={options.collapseMode}
+          folderViewMode={options.folderViewMode}
           status={status}
           errorMessage={errorMessage}
           onRefresh={refresh}

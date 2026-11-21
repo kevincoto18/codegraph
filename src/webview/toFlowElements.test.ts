@@ -7,9 +7,11 @@ import {
   FILE_PADDING,
   FUNCTION_ROW_GAP,
   FUNCTION_ROW_HEIGHT,
+  FOLDER_HEADER_HEIGHT,
   getFileNodeHeight,
   toFlowElements,
 } from './toFlowElements';
+import { buildFolderTree } from './folders';
 
 /** Two files: `a.ts` (2 functions) calls into `b.ts` (1 function). */
 const SNAPSHOT: GraphSnapshot = {
@@ -214,5 +216,29 @@ describe('toFlowElements — collapsed files', () => {
     const [merged] = toFlowElements(snapshot, new Set(['src/a.ts'])).edges;
     expect(merged).toMatchObject({ label: '×2', data: { kind: 'call', count: 2 } });
     expect(toFlowElements(snapshot).edges[0]).not.toHaveProperty('label');
+  });
+});
+
+describe('toFlowElements — folders', () => {
+  const tree = buildFolderTree(SNAPSHOT.nodes);
+
+  it('nests files in their folder, parents first', () => {
+    const { nodes } = toFlowElements(SNAPSHOT, new Set(), tree);
+    expect(nodes[0]).toMatchObject({
+      id: 'folder:src',
+      type: 'folder',
+      data: { label: 'src', path: 'src', fileCount: 2, collapsed: false },
+    });
+    const files = nodes.filter((node) => node.type === 'file');
+    expect(files.every((node) => node.parentId === 'folder:src' && node.extent === 'parent')).toBe(
+      true,
+    );
+  });
+
+  it('hides the content of collapsed folders and routes their edges to the folder', () => {
+    const { nodes, edges } = toFlowElements(SNAPSHOT, new Set(['folder:src']), tree);
+    expect(nodes.map((node) => node.id)).toEqual(['folder:src']);
+    expect(nodes[0]?.height).toBe(FOLDER_HEADER_HEIGHT);
+    expect(edges).toEqual([]);
   });
 });

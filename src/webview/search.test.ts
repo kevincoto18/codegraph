@@ -8,7 +8,9 @@ import {
   searchClassOfNode,
   matchNodes,
   normalizeQuery,
+  withFolderContext,
 } from './search';
+import { buildFolderTree } from './folders';
 
 /** Two files; `user.ts` has `saveUser` and `UserService.load`. */
 const SNAPSHOT: GraphSnapshot = {
@@ -126,5 +128,17 @@ describe('formatMatchCount', () => {
     [12, '12 matches'],
   ])('formats %i as "%s"', (count, expected) => {
     expect(formatMatchCount(count)).toBe(expected);
+  });
+});
+
+describe('withFolderContext', () => {
+  it('highlights the folders that contain highlighted files', () => {
+    const search = matchNodes(SNAPSHOT, 'save');
+    const tree = buildFolderTree(SNAPSHOT.nodes);
+    const extended = withFolderContext(search, tree);
+    expect(extended?.matchedIds).toEqual(search?.matchedIds);
+    expect(extended?.highlightedIds.has('folder:src')).toBe(true);
+    expect(withFolderContext(search, null)).toBe(search);
+    expect(withFolderContext(null, tree)).toBeNull();
   });
 });

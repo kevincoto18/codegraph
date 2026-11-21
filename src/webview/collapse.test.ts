@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import type { GraphEdge, GraphNode, GraphSnapshot } from '../shared';
-import { getAllFileIds, getInitialCollapsedFileIds, routeEdges, toggleId } from './collapse';
+import {
+  getAllContainerIds,
+  getAllFileIds,
+  getIdsToReveal,
+  getInitialCollapsedFileIds,
+  getInitialCollapsedIds,
+  getNextLevelToExpand,
+  routeEdges,
+  toggleId,
+} from './collapse';
+import type { CodeGraphFlowNode } from './flowTypes';
+import { buildFolderTree } from './folders';
+import { fileNode, functionNode } from './testFixtures';
 
 /**
  * Builds a snapshot with `fileCount` files of `functionsPerFile` functions each.
@@ -119,5 +131,63 @@ describe('routeEdges', () => {
       id === 'b.ts#z' ? 'b.ts' : resolve(id),
     );
     expect(routed.map((edge) => edge.id)).toEqual(['import:a.ts->b.ts', 'call:a.ts->b.ts']);
+  });
+});
+
+/** Nested files used by the folder helpers. */
+const NESTED: GraphSnapshot = {
+  version: 1,
+  nodes: [
+    fileNode('src/app.ts', ['src/app.ts#main']),
+    functionNode('src/app.ts', 'main'),
+    fileNode('src/lib/db.ts', ['src/lib/db.ts#query']),
+    functionNode('src/lib/db.ts', 'query'),
+    fileNode('top.ts'),
+  ],
+  edges: [],
+};
+
+describe('folder collapse helpers', () => {
+  const tree = buildFolderTree(NESTED.nodes);
+
+  it('starts with every folder collapsed plus the files of the collapse mode', () => {
+    expect(getInitialCollapsedIds(NESTED, 'never', tree)).toEqual(
+      new Set(['folder:src', 'folder:src/lib']),
+    );
+    expect(getInitialCollapsedIds(NESTED, 'always', null)).toEqual(getAllFileIds(NESTED));
+    expect(getAllContainerIds(NESTED, tree).size).toBe(5);
+  });
+
+  it('reveals the file of a function and every folder above it', () => {
+    expect(getIdsToReveal(NESTED, tree, ['src/lib/db.ts#query'])).toEqual(
+      new Set(['src/lib/db.ts', 'folder:src/lib', 'folder:src']),
+    );
+    expect(getIdsToReveal(NESTED, tree, ['src/app.ts'])).toEqual(new Set(['folder:src']));
+    expect(getIdsToReveal(NESTED, null, ['src/app.ts#main'])).toEqual(new Set(['src/app.ts']));
+  });
+
+  it('opens folders first, then files', () => {
+    const folder = {
+      id: 'folder:src',
+      type: 'folder',
+      position: { x: 0, y: 0 },
+      data: { label: 'src', path: 'src', fileCount: 2, collapsed: true },
+    } as const satisfies CodeGraphFlowNode;
+    /**
+     * Creates a collapsed file node.
+     *
+     * @param id - File id.
+     * @param functionCount - Number of functions.
+     * @returns The node.
+     */
+    const file = (id: string, functionCount: number): CodeGraphFlowNode => ({
+      id,
+      type: 'file',
+      position: { x: 0, y: 0 },
+      data: { label: id, filePath: id, line: 1, functionCount, collapsed: true },
+    });
+    expect(getNextLevelToExpand([folder, file('top.ts', 1)])).toEqual(['folder:src']);
+    expect(getNextLevelToExpand([file('a.ts', 2), file('empty.ts', 0)])).toEqual(['a.ts']);
+    expect(getNextLevelToExpand([])).toEqual([]);
   });
 });

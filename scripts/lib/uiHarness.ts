@@ -40,7 +40,7 @@ const HARNESS_SCRIPT = `
       if (message.type !== 'ready' || window.__initDone) return;
       window.__initDone = true;
       fetch('/init.json').then((r) => r.json()).then(async (initMessages) => {
-        window.postMessage({ type: 'options', options: { collapseMode: params.get('collapse') || 'always' } }, '*');
+        window.postMessage({ type: 'options', options: { collapseMode: params.get('collapse') || 'always', folderViewMode: params.get('folders') || 'auto' } }, '*');
         window.__t.initPostedAt = performance.now();
         for (const message of initMessages) window.postMessage(message, '*');
         while (!document.querySelector('.react-flow__node-file')) await frame();

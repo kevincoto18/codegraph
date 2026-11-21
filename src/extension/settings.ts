@@ -4,8 +4,8 @@
  * @remarks Reads through a minimal configuration interface instead of
  * `vscode.WorkspaceConfiguration`, so validation can be unit-tested.
  */
-import type { CollapseMode, ViewOptions } from '../shared';
-import { COLLAPSE_MODES } from '../shared';
+import type { CollapseMode, FolderViewMode, ViewOptions } from '../shared';
+import { COLLAPSE_MODES, FOLDER_VIEW_MODES } from '../shared';
 
 /** Settings section of the extension (`codegraph.*`). */
 export const SETTINGS_SECTION = 'codegraph';
@@ -14,11 +14,14 @@ export const SETTINGS_SECTION = 'codegraph';
 export interface CodeGraphSettings {
   /** Initial collapse state of file containers. */
   readonly collapseByDefault: CollapseMode;
+  /** Whether files are grouped into folder containers. */
+  readonly folderView: FolderViewMode;
 }
 
 /** Values used when a setting is missing or invalid. */
 export const DEFAULT_SETTINGS: CodeGraphSettings = {
   collapseByDefault: 'always',
+  folderView: 'auto',
 };
 
 /** Minimal read-only view of a configuration section. */
@@ -40,10 +43,14 @@ export interface ConfigurationReader {
  */
 export function readSettings(configuration: ConfigurationReader): CodeGraphSettings {
   const collapse = configuration.get('collapseByDefault');
+  const folderView = configuration.get('folderView');
   return {
     collapseByDefault: COLLAPSE_MODES.includes(collapse as CollapseMode)
       ? (collapse as CollapseMode)
       : DEFAULT_SETTINGS.collapseByDefault,
+    folderView: FOLDER_VIEW_MODES.includes(folderView as FolderViewMode)
+      ? (folderView as FolderViewMode)
+      : DEFAULT_SETTINGS.folderView,
   };
 }
 
@@ -54,5 +61,5 @@ export function readSettings(configuration: ConfigurationReader): CodeGraphSetti
  * @returns View options to send to the webview.
  */
 export function toViewOptions(settings: CodeGraphSettings): ViewOptions {
-  return { collapseMode: settings.collapseByDefault };
+  return { collapseMode: settings.collapseByDefault, folderViewMode: settings.folderView };
 }

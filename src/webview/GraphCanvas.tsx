@@ -1,9 +1,10 @@
 import type { NodeMouseHandler, OnNodesChange } from '@xyflow/react';
-import { Background, Controls, MiniMap, ReactFlow } from '@xyflow/react';
+import { Background, Controls, MiniMap, Panel, ReactFlow } from '@xyflow/react';
 import type { JSX } from 'react';
 
 import { useLowDetail } from './canvasOptions';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
+import { Legend } from './Legend';
 import { nodeTypes } from './nodes/nodeTypes';
 
 /** Props of {@link GraphCanvas}. */
@@ -48,11 +49,15 @@ export function GraphCanvas({
       nodesConnectable={false}
       edgesFocusable={false}
       onlyRenderVisibleElements
+      zIndexMode="auto"
       minZoom={MIN_ZOOM}
       fitView
     >
       <Background />
       <Controls showInteractive={false} />
+      <Panel position="top-left">
+        <Legend />
+      </Panel>
       {showMinimap && <MiniMap pannable zoomable />}
     </ReactFlow>
   );

@@ -7,10 +7,12 @@
 import type { NodeTypes } from '@xyflow/react';
 
 import { FileNode } from './FileNode';
+import { FolderNode } from './FolderNode';
 import { FunctionNode } from './FunctionNode';
 
 /** Custom node components by node `type`. */
 export const nodeTypes = {
+  folder: FolderNode,
   file: FileNode,
   function: FunctionNode,
 } satisfies NodeTypes;

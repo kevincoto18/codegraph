@@ -45,9 +45,9 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'graph/patch', patch }],
     [{ type: 'status', state: 'analyzing' }],
     [{ type: 'status', state: 'error', message: 'boom' }],
-    [{ type: 'options', options: { collapseMode: 'always' } }],
-    [{ type: 'options', options: { collapseMode: 'auto' } }],
-    [{ type: 'options', options: { collapseMode: 'never' } }],
+    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
+    [{ type: 'options', options: { collapseMode: 'auto', folderViewMode: 'always' } }],
+    [{ type: 'options', options: { collapseMode: 'never', folderViewMode: 'never' } }],
   ])('accepts %j', (message) => {
     expect(isHostToWebviewMessage(message)).toBe(true);
   });
@@ -60,7 +60,9 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'graph/patch', patch: { version: 2 } }],
     [{ type: 'status', state: 'done' }],
     [{ type: 'status', state: 'error', message: 42 }],
-    [{ type: 'options', options: { collapseMode: 'sometimes' } }],
+    [{ type: 'options', options: { collapseMode: 'sometimes', folderViewMode: 'auto' } }],
+    [{ type: 'options', options: { collapseMode: 'always' } }],
+    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'maybe' } }],
     [{ type: 'options' }],
     [{ type: 'options', options: [] }],
   ])('rejects %j', (message) => {

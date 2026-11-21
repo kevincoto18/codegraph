@@ -22,6 +22,7 @@
 | Calls             | `foo()`, `ns.foo()`, `this.foo()`, `Class.staticMethod()` — local or imported (ES and CommonJS)                                                                                      |
 | Navigation        | Click a file or function to open it at its line, in a column next to the graph                                                                                                       |
 | Large projects    | Auto-collapse above 400 functions, linear layered layout (tall ranks wrapped into sub-columns), level of detail when zoomed out, auto-hidden minimap, only visible elements rendered |
+| Folder view       | Large projects open as nested folders (compact chains like `src/extension`); edges between folders are merged into `×n` edges                                                        |
 | Collapse / expand | Per file or all at once; calls of collapsed files are merged into `×n` edges                                                                                                         |
 | Search            | By file path or function name; matches highlighted, Enter zooms to them, Escape clears                                                                                               |
 | Live updates      | Saves, external edits, created/deleted files and folders → debounced → queued changes batched → incremental relink → one patch                                                       |
@@ -53,18 +54,28 @@ from the Command Palette (`Ctrl+Shift+P`).
 
 ## Usage
 
-| Action                       | How                                                                     |
-| ---------------------------- | ----------------------------------------------------------------------- |
-| Open the graph               | `CodeGraph: Open Graph`                                                 |
-| Go to code                   | Click a function or a file header                                       |
-| Collapse / expand a file     | `▸` / `▾` button in the file header                                     |
-| Collapse / expand everything | **Collapse all** / **Expand all**                                       |
-| Search                       | Type in the search box · **Enter** zooms to matches · **Escape** clears |
-| Tidy the layout              | **Re-layout** (recomputes positions, e.g. after many live changes)      |
-| Full rescan                  | **Refresh**                                                             |
-| Zoom / pan / move files      | Mouse wheel · drag the background · drag a file header                  |
+| Action                       | How                                                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Open the graph               | `CodeGraph: Open Graph`                                                                                                   |
+| Go to code                   | Click a function or a file header                                                                                         |
+| Collapse / expand a file     | `▸` / `▾` button in the file header                                                                                       |
+| Open / close a folder        | Click the folder (or its `▸` / `▾` button)                                                                                |
+| Go one level deeper          | **Expand level** (collapsed folders first, then files)                                                                    |
+| Collapse / expand everything | **Collapse all** / **Expand all**                                                                                         |
+| Search                       | Type in the search box · **Enter** opens the folders/files hiding the matches and zooms to them · **Escape** clears       |
+| Choose connections           | **Show: Imports · Calls · Internal calls** (calls inside a file are hidden by default); a legend explains the line styles |
+| Tidy the layout              | **Re-layout** (recomputes positions, e.g. after many live changes)                                                        |
+| Full rescan                  | **Refresh**                                                                                                               |
+| Zoom / pan / move files      | Mouse wheel · drag the background · drag a file header                                                                    |
 
 Logs are written to the **CodeGraph** output channel (`Ctrl+Shift+U`).
+
+### Settings
+
+| Setting                       | Values                      | Default  | Effect                                                                        |
+| ----------------------------- | --------------------------- | -------- | ----------------------------------------------------------------------------- |
+| `codegraph.collapseByDefault` | `always` · `auto` · `never` | `always` | Whether files start collapsed (`auto`: above 400 functions)                   |
+| `codegraph.folderView`        | `auto` · `always` · `never` | `auto`   | Group files into nested folders that open on demand (`auto`: above 300 files) |
 
 ## Architecture
 

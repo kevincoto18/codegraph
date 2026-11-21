@@ -17,6 +17,7 @@ export type {
 export type {
   AnalysisState,
   CollapseMode,
+  FolderViewMode,
   GraphInitMessage,
   HostToWebview,
   MetricSample,
@@ -25,6 +26,7 @@ export type {
 } from './messages';
 export {
   COLLAPSE_MODES,
+  FOLDER_VIEW_MODES,
   MAX_METRIC_SAMPLES,
   createGraphInitMessages,
   isHostToWebviewMessage,

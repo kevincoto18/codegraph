@@ -56,7 +56,7 @@ describe('reduceHostMessage', () => {
       sessionId: 0,
       outOfSync: false,
       lastChange: null,
-      options: { collapseMode: 'always' },
+      options: { collapseMode: 'always', folderViewMode: 'auto' },
     });
   });
 
@@ -72,7 +72,7 @@ describe('reduceHostMessage', () => {
       sessionId: 1,
       outOfSync: false,
       lastChange: null,
-      options: { collapseMode: 'always' },
+      options: { collapseMode: 'always', folderViewMode: 'auto' },
     });
   });
 
@@ -166,10 +166,10 @@ describe('reduceHostMessage — view options', () => {
   it('stores options and keeps them across new snapshots', () => {
     const withOptions = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
       type: 'options',
-      options: { collapseMode: 'never' },
+      options: { collapseMode: 'never', folderViewMode: 'always' },
     });
-    expect(withOptions.options).toEqual({ collapseMode: 'never' });
+    expect(withOptions.options).toEqual({ collapseMode: 'never', folderViewMode: 'always' });
     const ready = reduceHostMessage(withOptions, { type: 'graph/loaded', graph: SNAPSHOT });
-    expect(ready.options).toEqual({ collapseMode: 'never' });
+    expect(ready.options).toEqual({ collapseMode: 'never', folderViewMode: 'always' });
   });
 });

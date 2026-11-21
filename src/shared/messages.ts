@@ -15,10 +15,15 @@ export type AnalysisState = 'analyzing' | 'ready' | 'error';
 /** Whether file containers start collapsed. */
 export type CollapseMode = 'always' | 'auto' | 'never';
 
+/** Whether the graph is shown as nested folders. */
+export type FolderViewMode = 'always' | 'auto' | 'never';
+
 /** View preferences chosen in the extension settings. */
 export interface ViewOptions {
   /** Initial collapse state of file containers. */
   readonly collapseMode: CollapseMode;
+  /** Whether files are grouped into folder containers. */
+  readonly folderViewMode: FolderViewMode;
 }
 
 /** Messages sent from the extension host to the webview. */
@@ -92,6 +97,9 @@ const ANALYSIS_STATES: readonly AnalysisState[] = ['analyzing', 'ready', 'error'
 
 /** All valid collapse modes, used for runtime validation. */
 export const COLLAPSE_MODES: readonly CollapseMode[] = ['always', 'auto', 'never'];
+
+/** All valid folder view modes, used for runtime validation. */
+export const FOLDER_VIEW_MODES: readonly FolderViewMode[] = ['always', 'auto', 'never'];
 
 /**
  * Checks whether a value is a non-null, non-array object.
@@ -216,7 +224,8 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
     case 'options':
       return (
         isRecord(value.options) &&
-        COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode)
+        COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode) &&
+        FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode)
       );
     case 'status':
       return (
