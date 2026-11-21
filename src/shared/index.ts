@@ -14,6 +14,12 @@ export type {
   NodeKind,
   RelPath,
 } from './types';
-export type { AnalysisState, HostToWebview, WebviewToHost } from './messages';
-export { isHostToWebviewMessage, isWebviewToHostMessage } from './messages';
+export type {
+  AnalysisState,
+  CollapseMode,
+  HostToWebview,
+  ViewOptions,
+  WebviewToHost,
+} from './messages';
+export { COLLAPSE_MODES, isHostToWebviewMessage, isWebviewToHostMessage } from './messages';
 export { createEdgeId, createFileId, createFunctionId, toPosixPath } from './ids';

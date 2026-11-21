@@ -10,11 +10,21 @@ import type { GraphPatch, GraphSnapshot, RelPath } from './types';
 /** Analysis status reported by the host. */
 export type AnalysisState = 'analyzing' | 'ready' | 'error';
 
+/** Whether file containers start collapsed. */
+export type CollapseMode = 'always' | 'auto' | 'never';
+
+/** View preferences chosen in the extension settings. */
+export interface ViewOptions {
+  /** Initial collapse state of file containers. */
+  readonly collapseMode: CollapseMode;
+}
+
 /** Messages sent from the extension host to the webview. */
 export type HostToWebview =
   | { readonly type: 'graph/init'; readonly graph: GraphSnapshot }
   | { readonly type: 'graph/patch'; readonly patch: GraphPatch }
-  | { readonly type: 'status'; readonly state: AnalysisState; readonly message?: string };
+  | { readonly type: 'status'; readonly state: AnalysisState; readonly message?: string }
+  | { readonly type: 'options'; readonly options: ViewOptions };
 
 /** Messages sent from the webview to the extension host. */
 export type WebviewToHost =
@@ -27,6 +37,9 @@ export type WebviewToHost =
 
 /** All valid analysis states, used for runtime validation. */
 const ANALYSIS_STATES: readonly AnalysisState[] = ['analyzing', 'ready', 'error'];
+
+/** All valid collapse modes, used for runtime validation. */
+export const COLLAPSE_MODES: readonly CollapseMode[] = ['always', 'auto', 'never'];
 
 /**
  * Checks whether a value is a non-null, non-array object.
@@ -123,6 +136,11 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
       return isGraphSnapshotLike(value.graph);
     case 'graph/patch':
       return isGraphPatchLike(value.patch);
+    case 'options':
+      return (
+        isRecord(value.options) &&
+        COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode)
+      );
     case 'status':
       return (
         ANALYSIS_STATES.includes(value.state as AnalysisState) &&

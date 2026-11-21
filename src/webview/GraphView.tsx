@@ -3,7 +3,7 @@ import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AnalysisState, GraphSnapshot, RelPath } from '../shared';
+import type { AnalysisState, CollapseMode, GraphSnapshot, RelPath } from '../shared';
 import { getAllFileIds, getInitialCollapsedFileIds, toggleId } from './collapse';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
 import { GraphActionsContext } from './graphActions';
@@ -24,6 +24,8 @@ interface GraphViewProps {
   readonly snapshot: GraphSnapshot;
   /** Nodes touched by the latest patch, highlighted briefly. */
   readonly lastChange: GraphChange | null;
+  /** Initial collapse state of files; changing it resets the collapsed files. */
+  readonly collapseMode: CollapseMode;
   readonly status: AnalysisState;
   readonly errorMessage: string | null;
   /** Requests a full rescan. */
@@ -69,6 +71,7 @@ export function GraphView(props: GraphViewProps): JSX.Element {
 function GraphViewContent({
   snapshot,
   lastChange,
+  collapseMode,
   status,
   errorMessage,
   onRefresh,
@@ -76,8 +79,14 @@ function GraphViewContent({
 }: GraphViewProps): JSX.Element {
   const { fitView, getZoom } = useReactFlow<CodeGraphFlowNode, CodeGraphFlowEdge>();
   const [collapsedFileIds, setCollapsedFileIds] = useState(() =>
-    getInitialCollapsedFileIds(snapshot),
+    getInitialCollapsedFileIds(snapshot, collapseMode),
   );
+  // A new collapse setting re-applies the initial collapse state.
+  const [appliedCollapseMode, setAppliedCollapseMode] = useState(collapseMode);
+  if (appliedCollapseMode !== collapseMode) {
+    setAppliedCollapseMode(collapseMode);
+    setCollapsedFileIds(getInitialCollapsedFileIds(snapshot, collapseMode));
+  }
   const [layoutRequest, setLayoutRequest] = useState(0);
   const [query, setQuery] = useState('');
   const [expiredChangeVersion, setExpiredChangeVersion] = useState(0);

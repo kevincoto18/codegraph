@@ -2,10 +2,10 @@
  * Pure helpers for collapsing file containers and re-routing edges to the
  * nodes that remain visible.
  */
-import type { EdgeKind, GraphEdge, GraphSnapshot } from '../shared';
+import type { CollapseMode, EdgeKind, GraphEdge, GraphSnapshot } from '../shared';
 import { createEdgeId } from '../shared';
 
-/** Above this many functions, every file starts collapsed. */
+/** In `auto` mode, above this many functions every file starts collapsed. */
 export const AUTO_COLLAPSE_FUNCTION_THRESHOLD = 400;
 
 /** An edge between visible nodes, possibly standing for several model edges. */
@@ -19,21 +19,29 @@ export interface RoutedEdge {
 }
 
 /**
- * Decides which files start collapsed: all of them for large graphs, none otherwise.
+ * Decides which files start collapsed.
  *
  * @param snapshot - Graph snapshot.
- * @param threshold - Function count above which everything is collapsed.
+ * @param mode - `always` collapses every file, `never` none, and `auto` every
+ *   file only when the graph has more functions than `threshold`.
+ * @param threshold - Function count above which `auto` collapses everything.
  * @returns Ids of the files to collapse initially.
  */
 export function getInitialCollapsedFileIds(
   snapshot: GraphSnapshot,
+  mode: CollapseMode,
   threshold: number = AUTO_COLLAPSE_FUNCTION_THRESHOLD,
 ): Set<string> {
-  const functionCount = snapshot.nodes.filter((node) => node.kind === 'function').length;
-  if (functionCount <= threshold) {
+  if (mode === 'never') {
     return new Set();
   }
-  return new Set(snapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.id));
+  if (mode === 'auto') {
+    const functionCount = snapshot.nodes.filter((node) => node.kind === 'function').length;
+    if (functionCount <= threshold) {
+      return new Set();
+    }
+  }
+  return getAllFileIds(snapshot);
 }
 
 /**

@@ -12,7 +12,7 @@ import { useGraphChannel } from './useGraphChannel';
  * @returns The webview root element.
  */
 export function App(): JSX.Element {
-  const { snapshot, lastChange, sessionId, status, errorMessage, refresh, navigate } =
+  const { snapshot, lastChange, sessionId, options, status, errorMessage, refresh, navigate } =
     useGraphChannel();
 
   return (
@@ -36,6 +36,7 @@ export function App(): JSX.Element {
           key={sessionId}
           snapshot={snapshot}
           lastChange={lastChange}
+          collapseMode={options.collapseMode}
           status={status}
           errorMessage={errorMessage}
           onRefresh={refresh}

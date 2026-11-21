@@ -1,7 +1,7 @@
 /**
  * Pure state management for messages received from the extension host.
  */
-import type { AnalysisState, GraphSnapshot, HostToWebview } from '../shared';
+import type { AnalysisState, GraphSnapshot, HostToWebview, ViewOptions } from '../shared';
 import { applyPatch, classifyPatch, getChangedNodeIds } from './patch';
 
 /** Nodes touched by the latest applied patch (for visual feedback). */
@@ -26,6 +26,8 @@ export interface GraphChannelState {
   readonly outOfSync: boolean;
   /** Latest applied patch, or `null` right after a full snapshot. */
   readonly lastChange: GraphChange | null;
+  /** View preferences from the extension settings. */
+  readonly options: ViewOptions;
 }
 
 /** Counters displayed in the status bar. */
@@ -44,6 +46,7 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   sessionId: 0,
   outOfSync: false,
   lastChange: null,
+  options: { collapseMode: 'always' },
 };
 
 /** Fallback text when the host reports an error without a message. */
@@ -63,6 +66,7 @@ export function reduceHostMessage(
   switch (message.type) {
     case 'graph/init':
       return {
+        ...state,
         snapshot: message.graph,
         status: 'ready',
         errorMessage: null,
@@ -70,6 +74,8 @@ export function reduceHostMessage(
         outOfSync: false,
         lastChange: null,
       };
+    case 'options':
+      return { ...state, options: message.options };
     case 'status':
       return {
         ...state,

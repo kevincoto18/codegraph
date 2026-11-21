@@ -7,6 +7,8 @@ import type { HostToWebview, RelPath, WebviewToHost } from '../shared';
 import { GraphService } from './graphService';
 import { openFileAtLine } from './navigation';
 import { CodeGraphPanel } from './panel';
+import type { CodeGraphSettings } from './settings';
+import { SETTINGS_SECTION, readSettings, toViewOptions } from './settings';
 import { VsCodeWorkspaceReader } from './workspaceReader';
 import { WorkspaceSync } from './workspaceSync';
 
@@ -37,9 +39,13 @@ function describeError(error: unknown): string {
 export class CodeGraphController implements vscode.Disposable {
   private panel: CodeGraphPanel | undefined;
   private session: AnalysisSession | undefined;
+  private settings: CodeGraphSettings = readSettings(
+    vscode.workspace.getConfiguration(SETTINGS_SECTION),
+  );
+  private readonly configurationListener: vscode.Disposable;
 
   /**
-   * Creates the controller.
+   * Creates the controller and starts tracking settings changes.
    *
    * @param extensionUri - Root URI of the extension (to locate the webview bundle).
    * @param logger - Extension log channel.
@@ -47,11 +53,17 @@ export class CodeGraphController implements vscode.Disposable {
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly logger: vscode.LogOutputChannel,
-  ) {}
+  ) {
+    this.configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration(SETTINGS_SECTION)) {
+        void this.handleSettingsChanged();
+      }
+    });
+  }
 
   /**
-   * Shows the graph panel, creating it if needed. The analysis starts when the
-   * webview reports it is ready.
+   * Shows the graph panel full size in the editor area, creating it if needed.
+   * The analysis starts when the webview reports it is ready.
    */
   public openGraph(): void {
     const folder = vscode.workspace.workspaceFolders?.[0];
@@ -79,6 +91,7 @@ export class CodeGraphController implements vscode.Disposable {
 
   /** Closes the panel and releases resources. */
   public dispose(): void {
+    this.configurationListener.dispose();
     this.panel?.dispose();
     this.panel = undefined;
     this.session?.sync.dispose();
@@ -119,6 +132,7 @@ export class CodeGraphController implements vscode.Disposable {
   private async handleMessage(message: WebviewToHost): Promise<void> {
     switch (message.type) {
       case 'ready':
+        await this.post({ type: 'options', options: toViewOptions(this.settings) });
         await this.sendGraph(false);
         return;
       case 'refresh':
@@ -157,6 +171,15 @@ export class CodeGraphController implements vscode.Disposable {
       this.logger.error(`Graph build failed: ${message}`);
       await this.post({ type: 'status', state: 'error', message });
     }
+  }
+
+  /**
+   * Re-reads the settings and pushes the new view options to the webview.
+   */
+  private async handleSettingsChanged(): Promise<void> {
+    this.settings = readSettings(vscode.workspace.getConfiguration(SETTINGS_SECTION));
+    this.logger.info(`Settings updated: ${JSON.stringify(this.settings)}`);
+    await this.post({ type: 'options', options: toViewOptions(this.settings) });
   }
 
   /**

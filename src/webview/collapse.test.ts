@@ -49,12 +49,21 @@ function call(source: string, target: string): GraphEdge {
 }
 
 describe('getInitialCollapsedFileIds', () => {
-  it('collapses nothing for small graphs', () => {
-    expect(getInitialCollapsedFileIds(makeSnapshot(2, 3), 6)).toEqual(new Set());
+  it('collapses every file in "always" mode, even small graphs', () => {
+    expect(getInitialCollapsedFileIds(makeSnapshot(2, 1), 'always')).toEqual(
+      new Set(['f0.ts', 'f1.ts']),
+    );
   });
 
-  it('collapses every file above the threshold', () => {
-    expect(getInitialCollapsedFileIds(makeSnapshot(2, 4), 6)).toEqual(new Set(['f0.ts', 'f1.ts']));
+  it('collapses nothing in "never" mode, even large graphs', () => {
+    expect(getInitialCollapsedFileIds(makeSnapshot(2, 4), 'never', 6)).toEqual(new Set());
+  });
+
+  it('collapses only above the threshold in "auto" mode', () => {
+    expect(getInitialCollapsedFileIds(makeSnapshot(2, 3), 'auto', 6)).toEqual(new Set());
+    expect(getInitialCollapsedFileIds(makeSnapshot(2, 4), 'auto', 6)).toEqual(
+      new Set(['f0.ts', 'f1.ts']),
+    );
   });
 });
 

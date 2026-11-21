@@ -71,7 +71,8 @@ export class CodeGraphPanel implements vscode.Disposable {
   }
 
   /**
-   * Creates and shows a new CodeGraph panel beside the active editor.
+   * Creates and shows a new CodeGraph panel in the active editor column, so
+   * the graph uses the whole editor area.
    *
    * @param extensionUri - Root URI of the extension.
    * @param onMessage - Handler for validated webview messages.
@@ -89,7 +90,7 @@ export class CodeGraphPanel implements vscode.Disposable {
     const panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
       PANEL_TITLE,
-      vscode.ViewColumn.Beside,
+      vscode.ViewColumn.Active,
       { enableScripts: true, localResourceRoots: [webviewRoot], retainContextWhenHidden: false },
     );
     return new CodeGraphPanel(panel, extensionUri, onMessage, onDispose, logger);

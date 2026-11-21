@@ -13,15 +13,46 @@
     "Visualization",
     "Other"
   ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "codegraph.openGraph",
         "title": "Open Graph",
-        "category": "CodeGraph"
+        "category": "CodeGraph",
+        "icon": "$(type-hierarchy)"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "codegraph.openGraph",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g"
+      }
+    ],
+    "configuration": {
+      "title": "CodeGraph",
+      "properties": {
+        "codegraph.collapseByDefault": {
+          "type": "string",
+          "enum": [
+            "always",
+            "auto",
+            "never"
+          ],
+          "default": "always",
+          "enumDescriptions": [
+            "Every file starts collapsed.",
+            "Files start collapsed only in large graphs (more than 400 functions).",
+            "Every file starts expanded."
+          ],
+          "description": "Whether file containers start collapsed when the graph is opened."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "npm run build:extension && npm run build:webview",

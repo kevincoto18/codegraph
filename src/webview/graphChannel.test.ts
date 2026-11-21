@@ -56,6 +56,7 @@ describe('reduceHostMessage', () => {
       sessionId: 0,
       outOfSync: false,
       lastChange: null,
+      options: { collapseMode: 'always' },
     });
   });
 
@@ -71,6 +72,7 @@ describe('reduceHostMessage', () => {
       sessionId: 1,
       outOfSync: false,
       lastChange: null,
+      options: { collapseMode: 'always' },
     });
   });
 
@@ -157,5 +159,17 @@ describe('reduceHostMessage — live patches', () => {
       sessionId: ready.sessionId + 1,
       lastChange: null,
     });
+  });
+});
+
+describe('reduceHostMessage — view options', () => {
+  it('stores options and keeps them across new snapshots', () => {
+    const withOptions = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'options',
+      options: { collapseMode: 'never' },
+    });
+    expect(withOptions.options).toEqual({ collapseMode: 'never' });
+    const ready = reduceHostMessage(withOptions, { type: 'graph/init', graph: SNAPSHOT });
+    expect(ready.options).toEqual({ collapseMode: 'never' });
   });
 });
