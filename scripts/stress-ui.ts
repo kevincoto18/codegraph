@@ -5,7 +5,7 @@
  * Uses the Edge or Chrome already installed on the machine (playwright-core,
  * no browser download). Set CODEGRAPH_BROWSER to an executable path to force one.
  *
- * Usage: npm run build && npm run stress:ui [-- --sizes S,M,L,XL]
+ * Usage: npm run build && npm run stress:ui [-- --sizes S,M,L,XL] [--folders auto|always|never]
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -58,6 +58,7 @@ interface UiResult {
   fpsIdle: number | null;
   fpsPanCollapsed: number | null;
   fpsZoomCollapsed: number | null;
+  expandLevelMs: number | null;
   expandAllMs: number | null;
   fpsPanExpanded: number | null;
   collapseAllMs: number | null;
@@ -211,6 +212,7 @@ async function collectWebviewMetrics(page: Page): Promise<Record<string, number>
  * @param url - Harness URL.
  * @param data - Harness data (updated for this size).
  * @param size - Size preset.
+ * @param folders - Folder view mode (`never`, `auto` or `always`).
  * @returns The results.
  */
 async function runSize(
@@ -218,6 +220,7 @@ async function runSize(
   url: string,
   data: HarnessData,
   size: StressSize,
+  folders: string,
 ): Promise<UiResult> {
   console.log(`\n▶ ${size.id}: preparing graph (${formatCount(size.files)} files)…`);
   const { snapshot, patch, functions } = await prepareGraph(size);
@@ -236,6 +239,7 @@ async function runSize(
     fpsIdle: null,
     fpsPanCollapsed: null,
     fpsZoomCollapsed: null,
+    expandLevelMs: null,
     expandAllMs: null,
     fpsPanExpanded: null,
     collapseAllMs: null,
@@ -244,7 +248,7 @@ async function runSize(
     webviewMetrics: {},
   };
   try {
-    await page.goto(`${url}?collapse=always`);
+    await page.goto(`${url}?collapse=always&folders=${folders}`);
     const firstPaintMs = await attempt(
       'first paint',
       async () => {
@@ -295,6 +299,15 @@ async function runSize(
     console.log(
       `  collapsed: pan ${formatFps(result.fpsPanCollapsed)}, zoom ${formatFps(result.fpsZoomCollapsed)}`,
     );
+
+    if (folders !== 'never') {
+      result.expandLevelMs = await attempt(
+        'expand level',
+        () => clickAndWait(page, 'Expand level', 'any'),
+        -1,
+      );
+      console.log(`  expand level ${formatAction(result.expandLevelMs)}`);
+    }
 
     console.log('  expand all…');
     result.expandAllMs = await attempt(
@@ -385,9 +398,10 @@ function formatAction(ms: number | null): string {
  *
  * @param results - Results of every size.
  * @param browserLabel - Browser used.
+ * @param folders - Folder view mode used.
  * @returns The report.
  */
-function renderReport(results: readonly UiResult[], browserLabel: string): string {
+function renderReport(results: readonly UiResult[], browserLabel: string, folders: string): string {
   const sizes = results.map((result) => result.size);
   /**
    * Builds a table row with one cell per size.
@@ -403,7 +417,7 @@ function renderReport(results: readonly UiResult[], browserLabel: string): strin
   return [
     '# CodeGraph — UI stress test',
     '',
-    `Browser: ${browserLabel} (headless) · viewport ${String(VIEWPORT.width)}×${String(VIEWPORT.height)} · ${new Date().toISOString()}`,
+    `Browser: ${browserLabel} (headless) · viewport ${String(VIEWPORT.width)}×${String(VIEWPORT.height)} · folder view: ${folders} · ${new Date().toISOString()}`,
     '',
     '> Headless browsers often render without GPU acceleration: FPS here is a lower bound of what VS Code shows.',
     '',
@@ -419,6 +433,9 @@ function renderReport(results: readonly UiResult[], browserLabel: string): strin
         row('Idle FPS', (r) => formatFps(r.fpsIdle)),
         row('Pan FPS (collapsed)', (r) => formatFps(r.fpsPanCollapsed)),
         row('Zoom FPS (collapsed)', (r) => formatFps(r.fpsZoomCollapsed)),
+        row('Expand level', (r) =>
+          r.expandLevelMs === null ? '—' : formatAction(r.expandLevelMs),
+        ),
         row('Expand all', (r) => formatAction(r.expandAllMs)),
         row('Pan FPS (expanded)', (r) => formatFps(r.fpsPanExpanded)),
         row('Collapse all', (r) => formatAction(r.collapseAllMs)),
@@ -442,6 +459,7 @@ async function main(): Promise<void> {
     throw new Error('Webview bundle not found. Run "npm run build" first.');
   }
   const sizes = parseSizes(readFlag(process.argv.slice(2), 'sizes'), ['S', 'M', 'L']);
+  const folders = readFlag(process.argv.slice(2), 'folders') ?? 'auto';
   const data: HarnessData = { initMessagesJson: '[]' };
   const { server, url } = await startHarness(webviewDist, data);
   const { browser, label } = await launchBrowser();
@@ -449,13 +467,13 @@ async function main(): Promise<void> {
   const results: UiResult[] = [];
   try {
     for (const size of sizes) {
-      results.push(await runSize(browser, url, data, size));
+      results.push(await runSize(browser, url, data, size, folders));
     }
   } finally {
     await browser.close();
     server.close();
   }
-  const report = renderReport(results, label);
+  const report = renderReport(results, label, folders);
   console.log(`\n${report}`);
   const paths = await saveReport('stress-ui', report, results);
   console.log(`Saved ${paths.markdownPath} and ${paths.jsonPath}`);

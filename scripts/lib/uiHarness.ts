@@ -43,7 +43,7 @@ const HARNESS_SCRIPT = `
         window.postMessage({ type: 'options', options: { collapseMode: params.get('collapse') || 'always', folderViewMode: params.get('folders') || 'auto' } }, '*');
         window.__t.initPostedAt = performance.now();
         for (const message of initMessages) window.postMessage(message, '*');
-        while (!document.querySelector('.react-flow__node-file')) await frame();
+        while (!document.querySelector('.react-flow__node')) await frame();
         await frame();
         window.__t.firstPaint = performance.now() - window.__t.initPostedAt;
       });

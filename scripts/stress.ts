@@ -2,12 +2,19 @@
  * Host stress test: runs the real GraphService (parser, cache, linker, diff)
  * on synthetic projects of increasing size, without VS Code.
  *
- * Scenarios per size: cold scan, repeated scans, message size, a burst of
- * saves, renaming a hub export, deleting a whole folder, and retained memory.
+ * Scenarios per size: cold scan, repeated scans, warm start from the
+ * persisted cache, message size, single saves, a burst of saves, renaming a
+ * hub export, deleting a whole folder, and retained memory.
  *
  * Usage: npm run stress [-- --sizes S,M,L,XL]
  */
-import { GraphService } from '../src/extension/graphService';
+import { stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { FileStamp } from '../src/extension/cache';
+import { FileCacheStore } from '../src/extension/cacheStore';
+import { ANALYSIS_CACHE_KEY, GraphService } from '../src/extension/graphService';
 import { PerformanceTracker } from '../src/extension/perf';
 import type { GraphPatch, GraphSnapshot } from '../src/shared';
 import { createGraphInitMessages } from '../src/shared';
@@ -29,6 +36,9 @@ import { formatBytes, formatCount, formatMs, markdownTable, summarize } from './
 /** Number of rapid saves in the burst scenario. */
 const BURST_SIZE = 200;
 
+/** Saves applied one at a time to measure the latency of a single save. */
+const SINGLE_SAVES = 30;
+
 /** Repeated scans used to measure warmed-up (JIT) scan time. */
 const REPEATED_SCANS = 2;
 
@@ -46,11 +56,16 @@ interface SizeResult {
   readonly writeMs: number;
   readonly coldScan: Record<string, number>;
   readonly repeatedScanMs: Summary;
+  /** Scan of a new session restoring the persisted cache (files unchanged), per stage. */
+  readonly warmStart: Record<string, number>;
+  /** Latency of saves applied one at a time. */
+  readonly singleSave: Summary;
   readonly initMessageBytes: number;
   readonly initSerializeMs: number;
   readonly burst: {
     readonly totalMs: number;
-    readonly latency: Summary;
+    /** Number of batches (distinct patches) the burst was applied in. */
+    readonly batches: number;
     readonly patchBytes: Summary;
   };
   readonly hubRename: {
@@ -61,13 +76,98 @@ interface SizeResult {
   readonly folderDelete: {
     readonly files: number;
     readonly totalMs: number;
-    readonly perFile: Summary;
+    readonly batches: number;
   };
   readonly memory: {
     readonly heapAfterScanMb: number;
     readonly rssMb: number;
     readonly heapGrowthMb: number | null;
   };
+}
+
+/** File system reader that also reports file stamps, like the VS Code reader. */
+class StampedFileSystemReader extends FileSystemReader {
+  /**
+   * Creates the reader.
+   *
+   * @param folder - Absolute folder path.
+   */
+  public constructor(private readonly folder: string) {
+    super(folder);
+  }
+
+  /**
+   * Returns the modification time and size of a file.
+   *
+   * @param filePath - Relative POSIX path.
+   * @returns The stamp.
+   */
+  public async stat(filePath: string): Promise<FileStamp> {
+    const stats = await stat(join(this.folder, filePath));
+    return { mtime: stats.mtimeMs, size: stats.size };
+  }
+}
+
+/**
+ * Measures a warm start: a first session persists its cache, then a new
+ * session restores it and rescans the (unchanged) workspace.
+ *
+ * @param folder - Folder of the generated project.
+ * @returns Stage totals of the second session's scan.
+ */
+async function runWarmStart(folder: string): Promise<Record<string, number>> {
+  const cachePath = join(tmpdir(), 'codegraph-stress-cache', 'parse-cache.bin');
+  const store = new FileCacheStore(cachePath, ANALYSIS_CACHE_KEY, quietLogger);
+  const options = { maxFiles: Number.POSITIVE_INFINITY, store };
+  const first = new GraphService(
+    new StampedFileSystemReader(folder),
+    quietLogger,
+    undefined,
+    options,
+  );
+  await first.initialize();
+  await first.dispose();
+
+  const tracker = new PerformanceTracker();
+  const second = new GraphService(new StampedFileSystemReader(folder), quietLogger, undefined, {
+    ...options,
+    tracker,
+  });
+  await second.initialize();
+  const stages: Record<string, number> = {};
+  for (const name of ['cacheLoad', 'list', 'stat', 'read', 'link', 'total']) {
+    stages[name] = tracker.get(`scan.${name}`)?.total ?? Number.NaN;
+  }
+  return stages;
+}
+
+/**
+ * Applies saves one at a time (each waits for its patch).
+ *
+ * @param service - Initialized service.
+ * @param reader - Its reader (edits go to the overlay).
+ * @param project - Generated project.
+ * @returns Latency of each save.
+ */
+async function runSingleSaves(
+  service: GraphService,
+  reader: FileSystemReader,
+  project: GeneratedProject,
+): Promise<Summary> {
+  const targets = ordinaryFiles(project)
+    .filter((_, index) => index % 3 === 1)
+    .slice(0, SINGLE_SAVES);
+  const latencies: number[] = [];
+  for (const [index, path] of targets.entries()) {
+    reader.overlay.set(
+      path,
+      `${project.files.get(path) ?? ''}\nfunction single${String(index)}(input) {\n  return input;\n}\n`,
+    );
+    const startedAt = performance.now();
+    await service.updateFile(path);
+    latencies.push(performance.now() - startedAt);
+  }
+  return summarize(latencies);
 }
 
 /**
@@ -146,7 +246,7 @@ function ordinaryFiles(project: GeneratedProject): string[] {
  * @param service - Initialized service.
  * @param reader - Its reader (edits go to the overlay).
  * @param project - Generated project.
- * @returns Total time, per-update latency and patch sizes.
+ * @returns Total time, number of batches and patch sizes.
  */
 async function runBurst(
   service: GraphService,
@@ -162,23 +262,13 @@ async function runBurst(
       `${project.files.get(path) ?? ''}\nfunction burst${String(index)}(input) {\n  return input;\n}\n`,
     );
   }
-  const latencies: number[] = [];
-  const patchBytes: number[] = [];
   const startedAt = performance.now();
-  await Promise.all(
-    targets.map(async (path) => {
-      const patch = await service.updateFile(path);
-      latencies.push(performance.now() - startedAt);
-      if (patch !== null) {
-        patchBytes.push(measureMessage({ type: 'graph/patch', patch }).bytes);
-      }
-    }),
-  );
+  // Fired back to back, like the watcher does: the service coalesces them into batches.
+  const patches = await Promise.all(targets.map((path) => service.updateFile(path)));
   const totalMs = performance.now() - startedAt;
-  // Latency of each update = completion time minus the previous completion (queue is serialized).
-  const sorted = [...latencies].sort((a, b) => a - b);
-  const perUpdate = sorted.map((value, index) => value - (sorted[index - 1] ?? 0));
-  return { totalMs, latency: summarize(perUpdate), patchBytes: summarize(patchBytes) };
+  const distinct = [...new Set(patches.filter((patch): patch is GraphPatch => patch !== null))];
+  const patchBytes = distinct.map((patch) => measureMessage({ type: 'graph/patch', patch }).bytes);
+  return { totalMs, batches: distinct.length, patchBytes: summarize(patchBytes) };
 }
 
 /**
@@ -212,7 +302,7 @@ async function runHubRename(
  * @param service - Initialized service.
  * @param reader - Its reader.
  * @param project - Generated project.
- * @returns Number of removed files, total and per-file time.
+ * @returns Number of removed files, total time and number of batches.
  */
 async function runFolderDelete(
   service: GraphService,
@@ -221,19 +311,14 @@ async function runFolderDelete(
 ): Promise<SizeResult['folderDelete']> {
   const root = `${project.packageRoots[0] ?? 'packages/pkg0'}/src/`;
   const victims = [...project.files.keys()].filter((path) => path.startsWith(root)).slice(0, 1000);
-  const perFile: number[] = [];
-  const startedAt = performance.now();
   for (const path of victims) {
     reader.overlay.set(path, null);
-    const fileStart = performance.now();
-    await service.removeFile(path);
-    perFile.push(performance.now() - fileStart);
   }
-  return {
-    files: victims.length,
-    totalMs: performance.now() - startedAt,
-    perFile: summarize(perFile),
-  };
+  const startedAt = performance.now();
+  // VS Code reports every file of a deleted folder at once.
+  const patches = await Promise.all(victims.map((path) => service.removeFile(path)));
+  const batches = new Set(patches.filter((patch) => patch !== null)).size;
+  return { files: victims.length, totalMs: performance.now() - startedAt, batches };
 }
 
 /**
@@ -276,6 +361,10 @@ async function runSize(size: StressSize, seed: number): Promise<SizeResult> {
     repeated.push(tracker.get('scan.total')?.last ?? Number.NaN);
   }
 
+  console.log('  warm start…');
+  const warmStart = await runWarmStart(folder);
+  console.log(`  ${String(SINGLE_SAVES)} single saves…`);
+  const singleSave = await runSingleSaves(service, reader, project);
   console.log(`  burst of ${String(BURST_SIZE)} saves…`);
   const burst = await runBurst(service, reader, project);
   console.log('  hub rename…');
@@ -307,6 +396,8 @@ async function runSize(size: StressSize, seed: number): Promise<SizeResult> {
     writeMs,
     coldScan,
     repeatedScanMs: summarize(repeated),
+    warmStart,
+    singleSave,
     initMessageBytes: init.bytes,
     initSerializeMs: init.ms,
     burst,
@@ -366,7 +457,13 @@ function renderReport(results: readonly SizeResult[]): string {
         row('Parse (sum)', (r) => formatMs(r.coldScan.parse)),
         row('Link', (r) => formatMs(r.coldScan.link)),
         row('**Total**', (r) => `**${formatMs(r.coldScan.total)}**`),
-        row('Repeated scan (p50, JIT warm)', (r) => formatMs(r.repeatedScanMs.p50)),
+        row('Repeated scan (p50, same session)', (r) => formatMs(r.repeatedScanMs.p50)),
+        row('Warm start (new session, persisted cache)', (r) => formatMs(r.warmStart.total)),
+        row(
+          '↳ cache load / list / stat / link',
+          (r) =>
+            `${formatMs(r.warmStart.cacheLoad)} / ${formatMs(r.warmStart.list)} / ${formatMs(r.warmStart.stat)} / ${formatMs(r.warmStart.link)}`,
+        ),
       ],
     ),
     '',
@@ -389,19 +486,20 @@ function renderReport(results: readonly SizeResult[]): string {
     markdownTable(
       ['Scenario', ...sizes],
       [
-        row(`Burst of ${String(BURST_SIZE)} saves — total`, (r) => formatMs(r.burst.totalMs)),
         row(
-          'Per save (p50 / p95 / max)',
+          `Single save (p50 / p95 / max, ${String(SINGLE_SAVES)} saves)`,
           (r) =>
-            `${formatMs(r.burst.latency.p50)} / ${formatMs(r.burst.latency.p95)} / ${formatMs(r.burst.latency.max)}`,
+            `${formatMs(r.singleSave.p50)} / ${formatMs(r.singleSave.p95)} / ${formatMs(r.singleSave.max)}`,
         ),
+        row(`Burst of ${String(BURST_SIZE)} saves — total`, (r) => formatMs(r.burst.totalMs)),
+        row('Burst — batches', (r) => formatCount(r.burst.batches)),
         row(
           'Rename hub export',
           (r) => `${formatMs(r.hubRename.ms)} (−${formatCount(r.hubRename.removedEdges)} edges)`,
         ),
         row('Delete folder — files', (r) => formatCount(r.folderDelete.files)),
         row('Delete folder — total', (r) => formatMs(r.folderDelete.totalMs)),
-        row('Delete folder — per file (p50)', (r) => formatMs(r.folderDelete.perFile.p50)),
+        row('Delete folder — batches', (r) => formatCount(r.folderDelete.batches)),
       ],
     ),
     '',
