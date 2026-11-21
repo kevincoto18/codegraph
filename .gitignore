@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+
+# Local planning notes (not versioned)
+PLANNING.md

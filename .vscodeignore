@@ -1,0 +1,13 @@
+.vscode/**
+src/**
+samples/**
+node_modules/**
+**/*.map
+**/tsconfig*.json
+eslint.config.mjs
+esbuild.mjs
+vite.config.mts
+.prettierrc
+.prettierignore
+.gitignore
+PLANNING.md
