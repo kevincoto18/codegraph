@@ -6,6 +6,9 @@ import { createOpenGraphStatusBarItem } from './statusBar';
 /** Command identifier contributed in `package.json`. */
 const OPEN_GRAPH_COMMAND = 'codegraph.openGraph';
 
+/** Command that opens the graph focused on a file or function. */
+const SHOW_CONNECTIONS_COMMAND = 'codegraph.showConnections';
+
 /** Command that opens the performance report. */
 const PERFORMANCE_REPORT_COMMAND = 'codegraph.showPerformanceReport';
 
@@ -41,6 +44,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(OPEN_GRAPH_COMMAND, () => {
       controller.openGraph();
     }),
+    vscode.commands.registerCommand(SHOW_CONNECTIONS_COMMAND, (uri?: vscode.Uri) =>
+      controller.showConnections(uri),
+    ),
     vscode.commands.registerCommand(PERFORMANCE_REPORT_COMMAND, () =>
       controller.showPerformanceReport(),
     ),

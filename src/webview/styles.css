@@ -694,3 +694,78 @@ body {
   stroke: var(--vscode-editorLineNumber-foreground, #8888);
   stroke-width: 8;
 }
+
+/* ---------- Focus mode ---------- */
+
+.react-flow__node.cg-focus-dimmed,
+.react-flow__edge.cg-focus-dimmed {
+  opacity: 0.12;
+}
+
+.react-flow__node.cg-focus-target .cg-file,
+.react-flow__node.cg-focus-target .cg-fn {
+  border-color: var(--vscode-focusBorder);
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}
+
+.cg-panel__hint,
+.cg-panel__focus {
+  margin: 0 0 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-panel__focus {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.cg-panel__row--labeled {
+  align-items: center;
+  margin-top: 6px;
+}
+
+.cg-panel__label {
+  width: 38px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Canvas context menu (right-click on a node or the background). */
+.cg-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 170px;
+  padding: 4px 0;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, transparent));
+  border-radius: 5px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgb(0 0 0 / 36%));
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+}
+
+.cg-menu__item {
+  display: block;
+  width: 100%;
+  padding: 4px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cg-menu__item:hover,
+.cg-menu__item:focus-visible {
+  outline: none;
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+}
+
+.cg-menu__separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border, #8884));
+}

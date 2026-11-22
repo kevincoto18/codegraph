@@ -43,6 +43,7 @@ describe('isHostToWebviewMessage', () => {
   it.each([
     [{ type: 'graph/init', version: 1, index: 0, last: true, chunk: { files: [], edges: [] } }],
     [{ type: 'graph/patch', patch }],
+    [{ type: 'focus', nodeId: 'src/a.ts#run' }],
     [{ type: 'status', state: 'analyzing' }],
     [{ type: 'status', state: 'error', message: 'boom' }],
     [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
@@ -58,6 +59,8 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'graph/init', version: 1, index: 0, last: 'yes', chunk: { files: [], edges: [] } }],
     [{ type: 'graph/init', version: 1, index: 0, last: true, chunk: { files: [] } }],
     [{ type: 'graph/patch', patch: { version: 2 } }],
+    [{ type: 'focus', nodeId: '' }],
+    [{ type: 'focus' }],
     [{ type: 'status', state: 'done' }],
     [{ type: 'status', state: 'error', message: 42 }],
     [{ type: 'options', options: { collapseMode: 'sometimes', folderViewMode: 'auto' } }],

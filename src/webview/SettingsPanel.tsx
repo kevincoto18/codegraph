@@ -2,6 +2,8 @@ import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 
 import type { EdgeFilters } from './edgeFilters';
+import type { FocusDirection } from './focus';
+import { FOCUS_DEPTHS, FOCUS_DIRECTIONS } from './focus';
 import type { FolderColorEntry } from './folderColors';
 import { SearchBox } from './SearchBox';
 
@@ -29,7 +31,23 @@ interface SettingsPanelProps {
   readonly onToggleFolderColors: () => void;
   /** Folders and their colors, largest first. */
   readonly folderColors: readonly FolderColorEntry[];
+  /** Name of the focused node, or `null` outside focus mode. */
+  readonly focusLabel: string | null;
+  readonly focusDepth: number;
+  readonly focusDirection: FocusDirection;
+  /** Focuses the selected file or function. */
+  readonly onFocusSelected: () => void;
+  readonly onExitFocus: () => void;
+  readonly onFocusDepthChange: (depth: number) => void;
+  readonly onFocusDirectionChange: (direction: FocusDirection) => void;
 }
+
+/** Labels of the focus directions. */
+const DIRECTION_LABELS: Readonly<Record<FocusDirection, string>> = {
+  both: 'Both',
+  incoming: 'Used by',
+  outgoing: 'Uses',
+};
 
 /** Props of {@link PanelSection}. */
 interface PanelSectionProps {
@@ -153,6 +171,63 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
           onChange={props.onQueryChange}
           onSubmit={props.onSearchSubmit}
         />
+      </PanelSection>
+
+      <PanelSection title="Focus" defaultOpen>
+        {props.focusLabel === null ? (
+          <p className="cg-panel__hint">
+            Double-click or right-click a file or function to see only its connections. While
+            focusing, click another one to move the focus.
+          </p>
+        ) : (
+          <p className="cg-panel__focus" title={props.focusLabel}>
+            ◎ {props.focusLabel}
+          </p>
+        )}
+        <div className="cg-panel__row">
+          <button type="button" className="cg-toolbar__button" onClick={props.onFocusSelected}>
+            Focus selected
+          </button>
+          <button
+            type="button"
+            className="cg-toolbar__button"
+            disabled={props.focusLabel === null}
+            onClick={props.onExitFocus}
+            title="Leave focus mode (Escape)"
+          >
+            Exit focus
+          </button>
+        </div>
+        <div className="cg-panel__row cg-panel__row--labeled" role="group" aria-label="Focus depth">
+          <span className="cg-panel__label">Hops</span>
+          {FOCUS_DEPTHS.map((depth) => (
+            <ToggleButton
+              key={depth}
+              label={String(depth)}
+              pressed={props.focusDepth === depth}
+              onToggle={() => {
+                props.onFocusDepthChange(depth);
+              }}
+            />
+          ))}
+        </div>
+        <div
+          className="cg-panel__row cg-panel__row--labeled"
+          role="group"
+          aria-label="Focus direction"
+        >
+          <span className="cg-panel__label">Show</span>
+          {FOCUS_DIRECTIONS.map((direction) => (
+            <ToggleButton
+              key={direction}
+              label={DIRECTION_LABELS[direction]}
+              pressed={props.focusDirection === direction}
+              onToggle={() => {
+                props.onFocusDirectionChange(direction);
+              }}
+            />
+          ))}
+        </div>
       </PanelSection>
 
       <PanelSection title="Connections" defaultOpen>

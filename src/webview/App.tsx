@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { useCallback, useState } from 'react';
 
 import { GraphView } from './GraphView';
 import { StatusBar } from './StatusBar';
@@ -12,8 +13,24 @@ import { useGraphChannel } from './useGraphChannel';
  * @returns The webview root element.
  */
 export function App(): JSX.Element {
-  const { snapshot, lastChange, sessionId, options, status, errorMessage, refresh, navigate } =
-    useGraphChannel();
+  const {
+    snapshot,
+    lastChange,
+    sessionId,
+    options,
+    status,
+    errorMessage,
+    focusRequest,
+    refresh,
+    navigate,
+  } = useGraphChannel();
+  // Survives remounts of the view (new snapshot), so a focus is applied once.
+  const [handledFocus, setHandledFocus] = useState(0);
+  const pendingFocus =
+    focusRequest !== null && focusRequest.sequence > handledFocus ? focusRequest : null;
+  const markFocusHandled = useCallback((sequence: number) => {
+    setHandledFocus((handled) => Math.max(handled, sequence));
+  }, []);
 
   return (
     <div className="cg-app">
@@ -38,6 +55,8 @@ export function App(): JSX.Element {
           lastChange={lastChange}
           collapseMode={options.collapseMode}
           folderViewMode={options.folderViewMode}
+          focusRequest={pendingFocus}
+          onFocusHandled={markFocusHandled}
           status={status}
           errorMessage={errorMessage}
           onRefresh={refresh}

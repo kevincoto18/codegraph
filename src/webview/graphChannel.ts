@@ -37,6 +37,15 @@ export interface GraphChannelState {
   readonly lastChange: GraphChange | null;
   /** View preferences from the extension settings. */
   readonly options: ViewOptions;
+  /** Latest focus asked by the host, numbered so repeated requests are distinct. */
+  readonly focusRequest: FocusRequest | null;
+}
+
+/** A focus asked by the host. */
+export interface FocusRequest {
+  readonly nodeId: string;
+  /** Increases with every request. */
+  readonly sequence: number;
 }
 
 /** Counters displayed in the status bar. */
@@ -56,6 +65,7 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   outOfSync: false,
   lastChange: null,
   options: { collapseMode: 'always', folderViewMode: 'auto' },
+  focusRequest: null,
 };
 
 /** Fallback text when the host reports an error without a message. */
@@ -85,6 +95,14 @@ export function reduceHostMessage(
       };
     case 'options':
       return { ...state, options: message.options };
+    case 'focus':
+      return {
+        ...state,
+        focusRequest: {
+          nodeId: message.nodeId,
+          sequence: (state.focusRequest?.sequence ?? 0) + 1,
+        },
+      };
     case 'status':
       return {
         ...state,

@@ -1,6 +1,6 @@
 import type { NodeMouseHandler, OnNodesChange } from '@xyflow/react';
 import { Background, Controls, MiniMap, Panel, ReactFlow } from '@xyflow/react';
-import type { JSX, ReactNode } from 'react';
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
 
 import { MIN_ZOOM, computeFitViewport, shouldHideEdges, useLowDetail } from './canvasOptions';
@@ -15,6 +15,14 @@ interface GraphCanvasProps {
   readonly onNodesChange: OnNodesChange<CodeGraphFlowNode>;
   /** Called when a node is clicked. */
   readonly onNodeClick: NodeMouseHandler<CodeGraphFlowNode>;
+  /** Called when a node is double-clicked (enters focus mode). */
+  readonly onNodeDoubleClick: NodeMouseHandler<CodeGraphFlowNode>;
+  /** Called when a node is right-clicked (opens the context menu). */
+  readonly onNodeContextMenu: NodeMouseHandler<CodeGraphFlowNode>;
+  /** Called when the background is right-clicked. */
+  readonly onPaneContextMenu: (event: MouseEvent | ReactMouseEvent) => void;
+  /** Called when the user starts panning or zooming. */
+  readonly onMoveStart: () => void;
   /** Whether the minimap is rendered. */
   readonly showMinimap: boolean;
   /** Whether files and folders show their folder color stripe. */
@@ -53,6 +61,10 @@ export function GraphCanvas({
   edges,
   onNodesChange,
   onNodeClick,
+  onNodeDoubleClick,
+  onNodeContextMenu,
+  onPaneContextMenu,
+  onMoveStart,
   showMinimap,
   folderColors,
   panel,
@@ -71,6 +83,11 @@ export function GraphCanvas({
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
       onNodeClick={onNodeClick}
+      onNodeDoubleClick={onNodeDoubleClick}
+      onNodeContextMenu={onNodeContextMenu}
+      onPaneContextMenu={onPaneContextMenu}
+      onMoveStart={onMoveStart}
+      zoomOnDoubleClick={false}
       nodesConnectable={false}
       edgesFocusable={false}
       onlyRenderVisibleElements

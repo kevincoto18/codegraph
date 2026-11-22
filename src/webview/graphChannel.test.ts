@@ -57,6 +57,7 @@ describe('reduceHostMessage', () => {
       outOfSync: false,
       lastChange: null,
       options: { collapseMode: 'always', folderViewMode: 'auto' },
+      focusRequest: null,
     });
   });
 
@@ -73,6 +74,7 @@ describe('reduceHostMessage', () => {
       outOfSync: false,
       lastChange: null,
       options: { collapseMode: 'always', folderViewMode: 'auto' },
+      focusRequest: null,
     });
   });
 
@@ -171,5 +173,14 @@ describe('reduceHostMessage — view options', () => {
     expect(withOptions.options).toEqual({ collapseMode: 'never', folderViewMode: 'always' });
     const ready = reduceHostMessage(withOptions, { type: 'graph/loaded', graph: SNAPSHOT });
     expect(ready.options).toEqual({ collapseMode: 'never', folderViewMode: 'always' });
+  });
+});
+
+describe('focus requests', () => {
+  it('numbers every focus request', () => {
+    const first = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, { type: 'focus', nodeId: 'a.ts' });
+    const second = reduceHostMessage(first, { type: 'focus', nodeId: 'a.ts' });
+    expect(first.focusRequest).toEqual({ nodeId: 'a.ts', sequence: 1 });
+    expect(second.focusRequest).toEqual({ nodeId: 'a.ts', sequence: 2 });
   });
 });

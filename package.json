@@ -29,6 +29,12 @@
         "command": "codegraph.showPerformanceReport",
         "title": "Show Performance Report",
         "category": "CodeGraph"
+      },
+      {
+        "command": "codegraph.showConnections",
+        "title": "Show Connections",
+        "category": "CodeGraph",
+        "icon": "$(target)"
       }
     ],
     "keybindings": [
@@ -72,6 +78,22 @@
           "description": "Whether files are grouped into nested folder containers that expand on demand."
         }
       }
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "codegraph.showConnections",
+          "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py)$/",
+          "group": "navigation@90"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codegraph.showConnections",
+          "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py)$/",
+          "group": "navigation@90"
+        }
+      ]
     }
   },
   "scripts": {

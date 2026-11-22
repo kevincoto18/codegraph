@@ -1,6 +1,6 @@
 import type { FitViewOptions, NodeMouseHandler, OnNodesChange } from '@xyflow/react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
-import type { JSX } from 'react';
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -23,7 +23,10 @@ import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
 import { GraphActionsContext } from './graphActions';
 import type { GraphActions } from './graphActions';
 import { GraphCanvas } from './GraphCanvas';
-import type { GraphChange } from './graphChannel';
+import { ContextMenu } from './ContextMenu';
+import type { ContextMenuAction, ContextMenuState, ContextMenuTarget } from './contextMenu';
+import { getContextMenuItems } from './contextMenu';
+import type { FocusRequest, GraphChange } from './graphChannel';
 import { summarizeGraph } from './graphChannel';
 import { reportMetric } from './metrics';
 import type { MinimapPreference } from './canvasOptions';
@@ -31,6 +34,8 @@ import { shouldShowMinimap } from './canvasOptions';
 import { ClassNameDecorator, joinClassNames } from './decorate';
 import type { EdgeFilters } from './edgeFilters';
 import { DEFAULT_EDGE_FILTERS, filterEdges } from './edgeFilters';
+import type { FocusDirection } from './focus';
+import { computeFocus, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
 import type { FolderTree } from './folders';
 import { buildFolderTree, isFolderViewEnabled } from './folders';
 import { matchNodes, searchClassOfEdge, searchClassOfNode, withFolderContext } from './search';
@@ -52,6 +57,10 @@ interface GraphViewProps {
   readonly collapseMode: CollapseMode;
   /** Whether files are grouped into folders; changing it resets the view. */
   readonly folderViewMode: FolderViewMode;
+  /** Focus asked by the host and not applied yet. */
+  readonly focusRequest: FocusRequest | null;
+  /** Called once a host focus request has been applied. */
+  readonly onFocusHandled: (sequence: number) => void;
   readonly status: AnalysisState;
   readonly errorMessage: string | null;
   /** Requests a full rescan. */
@@ -145,6 +154,8 @@ function GraphViewContent({
   lastChange,
   collapseMode,
   folderViewMode,
+  focusRequest,
+  onFocusHandled,
   status,
   errorMessage,
   onRefresh,
@@ -179,6 +190,10 @@ function GraphViewContent({
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(DEFAULT_EDGE_FILTERS);
   const [notice, setNotice] = useState<string | null>(null);
   const [folderColorsEnabled, setFolderColorsEnabled] = useState(true);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [focusDepth, setFocusDepth] = useState(1);
+  const [focusDirection, setFocusDirection] = useState<FocusDirection>('both');
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   // Decorators reuse unchanged node/edge objects so React Flow skips re-rendering them.
   const [nodeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowNode>());
   const [edgeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowEdge>());
@@ -207,23 +222,49 @@ function GraphViewContent({
     () => withFolderContext(matchNodes(snapshot, debouncedQuery), folderTree),
     [snapshot, debouncedQuery, folderTree],
   );
+  const focus = useMemo(
+    () =>
+      focusId === null
+        ? null
+        : computeFocus(snapshot, focusId, {
+            depth: focusDepth,
+            direction: focusDirection,
+            imports: edgeFilters.imports,
+            calls: edgeFilters.calls,
+          }),
+    [snapshot, focusId, focusDepth, focusDirection, edgeFilters.imports, edgeFilters.calls],
+  );
+  const focusedIds = useMemo(
+    () => (focus === null ? null : getFocusedDisplayIds(current.nodes, focus, folderTree)),
+    [focus, current.nodes, folderTree],
+  );
   const displayedNodes = useMemo(
     () =>
       nodeDecorator.apply(current.nodes, (node) =>
         joinClassNames(
           searchClassOfNode(node.id, search),
           highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
+          focusedIds === null || focusedIds.has(node.id) ? undefined : 'cg-focus-dimmed',
+          node.id === focusId ? 'cg-focus-target' : undefined,
         ),
       ),
-    [nodeDecorator, current.nodes, search, highlightedChangeIds],
+    [nodeDecorator, current.nodes, search, highlightedChangeIds, focusedIds, focusId],
   );
   const visibleEdges = useMemo(
     () => filterEdges(current.edges, current.nodes, edgeFilters),
     [current.edges, current.nodes, edgeFilters],
   );
   const displayedEdges = useMemo(
-    () => edgeDecorator.apply(visibleEdges, (edge) => searchClassOfEdge(edge, search)),
-    [edgeDecorator, visibleEdges, search],
+    () =>
+      edgeDecorator.apply(visibleEdges, (edge) =>
+        joinClassNames(
+          searchClassOfEdge(edge, search),
+          focusedIds === null || (focusedIds.has(edge.source) && focusedIds.has(edge.target))
+            ? undefined
+            : 'cg-focus-dimmed',
+        ),
+      ),
+    [edgeDecorator, visibleEdges, search, focusedIds],
   );
   const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
   const summary = useMemo(() => summarizeGraph(snapshot), [snapshot]);
@@ -302,17 +343,6 @@ function GraphViewContent({
     [getZoom],
   );
 
-  const handleNodeClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
-    (_event, node) => {
-      if (node.type === 'folder') {
-        toggle(node.id);
-      } else {
-        onNavigate(node.data.filePath, node.data.line);
-      }
-    },
-    [onNavigate, toggle],
-  );
-
   const expandLevel = useCallback(() => {
     const ids = getNextLevelToExpand(current.nodes);
     if (ids.length === 0) {
@@ -387,6 +417,170 @@ function GraphViewContent({
     void fitView(fit);
   }, [snapshot, query, folderTree, collapsedIds, fitView]);
 
+  const enterFocus = useCallback(
+    (nodeId: string, direction: FocusDirection = focusDirection) => {
+      const neighborhood = computeFocus(snapshot, nodeId, {
+        depth: focusDepth,
+        direction,
+        imports: edgeFilters.imports,
+        calls: edgeFilters.calls,
+      });
+      if (neighborhood.nodeIds.size === 0) {
+        return;
+      }
+      setFocusId(nodeId);
+      setFocusDirection(direction);
+      const fit: FitViewOptions<CodeGraphFlowNode> = {
+        nodes: [...neighborhood.nodeIds].map((id) => ({ id })),
+        duration: VIEWPORT_ANIMATION_MS,
+        maxZoom: 1,
+      };
+      // Open what hides the focused node and its neighbors, then fit.
+      const toExpand = [...getFocusIdsToReveal(snapshot, neighborhood, folderTree)].filter((id) =>
+        collapsedIds.has(id),
+      );
+      if (toExpand.length > 0) {
+        pendingFitRef.current = fit;
+        setCollapsedIds((collapsed) => {
+          const next = new Set(collapsed);
+          toExpand.forEach((id) => next.delete(id));
+          return next;
+        });
+        return;
+      }
+      void fitView(fit);
+    },
+    [snapshot, focusDepth, focusDirection, edgeFilters, folderTree, collapsedIds, fitView],
+  );
+
+  const exitFocus = useCallback(() => {
+    setFocusId(null);
+  }, []);
+
+  const focusSelected = useCallback(() => {
+    const selected = current.nodes.find((node) => node.selected === true && node.type !== 'folder');
+    if (selected !== undefined) {
+      enterFocus(selected.id);
+    }
+  }, [current.nodes, enterFocus]);
+
+  // While focusing, clicking another file or function moves the focus to it.
+  const handleNodeClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
+    (_event, node) => {
+      if (node.type === 'folder') {
+        toggle(node.id);
+        return;
+      }
+      if (focusId !== null && node.id !== focusId) {
+        enterFocus(node.id);
+      }
+      onNavigate(node.data.filePath, node.data.line);
+    },
+    [onNavigate, toggle, focusId, enterFocus],
+  );
+
+  const handleNodeContextMenu = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
+    (event, node) => {
+      event.preventDefault();
+      const target: ContextMenuTarget =
+        node.type === 'folder'
+          ? { kind: 'folder', nodeId: node.id }
+          : { kind: 'node', nodeId: node.id, nodeType: node.type };
+      const items = getContextMenuItems(target, focusId !== null);
+      setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
+    },
+    [focusId],
+  );
+
+  const handlePaneContextMenu = useCallback(
+    (event: MouseEvent | ReactMouseEvent) => {
+      event.preventDefault();
+      const items = getContextMenuItems({ kind: 'pane' }, focusId !== null);
+      setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
+    },
+    [focusId],
+  );
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const runContextMenuAction = useCallback(
+    (action: ContextMenuAction) => {
+      setContextMenu(null);
+      switch (action.type) {
+        case 'focus':
+          enterFocus(action.nodeId, action.direction);
+          break;
+        case 'navigate': {
+          const node = snapshot.nodes.find((item) => item.id === action.nodeId);
+          if (node !== undefined) {
+            onNavigate(node.filePath, node.line);
+          }
+          break;
+        }
+        case 'toggleFolder':
+          toggle(action.nodeId);
+          break;
+        case 'exitFocus':
+          setFocusId(null);
+          break;
+      }
+    },
+    [enterFocus, snapshot, onNavigate, toggle],
+  );
+
+  const handleNodeDoubleClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
+    (_event, node) => {
+      if (node.type !== 'folder') {
+        enterFocus(node.id);
+      }
+    },
+    [enterFocus],
+  );
+
+  // Apply a focus asked by the host ("Show Connections").
+  useEffect(() => {
+    if (focusRequest === null) {
+      return;
+    }
+    onFocusHandled(focusRequest.sequence);
+    // The request comes from the extension host (an external system) and is applied once.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    enterFocus(focusRequest.nodeId);
+  }, [focusRequest, onFocusHandled, enterFocus]);
+
+  // Escape leaves focus mode (unless typing in a field).
+  useEffect(() => {
+    if (focusId === null) {
+      return undefined;
+    }
+    /**
+     * Exits focus mode on Escape.
+     *
+     * @param event - Keyboard event.
+     */
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (event.key === 'Escape' && target?.tagName !== 'INPUT') {
+        setFocusId(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [focusId]);
+
+  const focusLabel = useMemo(() => {
+    const node = focusId === null ? undefined : snapshot.nodes.find((item) => item.id === focusId);
+    return node === undefined
+      ? null
+      : node.kind === 'file'
+        ? node.filePath
+        : `${node.label} · ${node.filePath}`;
+  }, [focusId, snapshot]);
+
   const toggleEdgeFilter = useCallback((key: keyof EdgeFilters) => {
     setEdgeFilters((filters) => ({ ...filters, [key]: !filters[key] }));
   }, []);
@@ -418,6 +612,13 @@ function GraphViewContent({
       folderColorsEnabled={folderColorsEnabled}
       onToggleFolderColors={toggleFolderColors}
       folderColors={folderColorEntries}
+      focusLabel={focusLabel}
+      focusDepth={focusDepth}
+      focusDirection={focusDirection}
+      onFocusSelected={focusSelected}
+      onExitFocus={exitFocus}
+      onFocusDepthChange={setFocusDepth}
+      onFocusDirectionChange={setFocusDirection}
     />
   );
 
@@ -442,10 +643,21 @@ function GraphViewContent({
           edges={displayedEdges}
           onNodesChange={onNodesChange}
           onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
+          onNodeContextMenu={handleNodeContextMenu}
+          onPaneContextMenu={handlePaneContextMenu}
+          onMoveStart={closeContextMenu}
           showMinimap={showMinimap}
           folderColors={folderColorsEnabled}
           panel={panel}
         />
+        {contextMenu !== null && (
+          <ContextMenu
+            menu={contextMenu}
+            onSelect={runContextMenuAction}
+            onClose={closeContextMenu}
+          />
+        )}
       </main>
     </GraphActionsContext>
   );

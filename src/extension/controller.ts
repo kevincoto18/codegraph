@@ -15,6 +15,7 @@ import type {
 } from '../shared';
 import { createGraphInitMessages } from '../shared';
 import { FileCacheStore, FileGraphStore } from './cacheStore';
+import { resolveFocusTarget } from './focusTarget';
 import type { GraphService, ScanProgressListener } from './graphService';
 import { openFileAtLine } from './navigation';
 import { formatPerformanceReport } from './perf';
@@ -74,6 +75,10 @@ export class CodeGraphController implements vscode.Disposable {
   private session: AnalysisSession | undefined;
   /** Pending session releases (cache persistence). */
   private closing: Promise<void> = Promise.resolve();
+  /** Whether the panel shows an up-to-date graph (focus requests can be sent). */
+  private graphShown = false;
+  /** Location to focus once the graph is shown ("Show Connections"). */
+  private pendingFocus: { readonly uri: vscode.Uri; readonly line?: number } | undefined;
   private settings: CodeGraphSettings = readSettings(
     vscode.workspace.getConfiguration(SETTINGS_SECTION),
   );
@@ -121,9 +126,59 @@ export class CodeGraphController implements vscode.Disposable {
       },
       () => {
         this.panel = undefined;
+        this.graphShown = false;
       },
       this.logger,
     );
+  }
+
+  /**
+   * Opens the graph focused on a file, or on the function under the cursor
+   * when invoked from the editor ("CodeGraph: Show Connections").
+   *
+   * @param uri - File chosen in the Explorer or editor; defaults to the active editor.
+   */
+  public async showConnections(uri?: vscode.Uri): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    const target = uri ?? editor?.document.uri;
+    if (target === undefined) {
+      void vscode.window.showInformationMessage('CodeGraph: open or select a source file first.');
+      return;
+    }
+    const line =
+      editor?.document.uri.toString() === target.toString()
+        ? editor.selection.active.line + 1
+        : undefined;
+    this.pendingFocus = line === undefined ? { uri: target } : { uri: target, line };
+    this.openGraph();
+    await this.flushFocus();
+  }
+
+  /**
+   * Sends the pending focus once the panel shows an up-to-date graph.
+   */
+  private async flushFocus(): Promise<void> {
+    const request = this.pendingFocus;
+    if (request === undefined || !this.graphShown || this.panel === undefined) {
+      return;
+    }
+    const session = await this.currentSession();
+    if (session?.service.hasScanned !== true) {
+      return;
+    }
+    this.pendingFocus = undefined;
+    const filePath = session.reader.toRelPath(request.uri);
+    const nodeId =
+      filePath === null
+        ? null
+        : resolveFocusTarget(session.service.getSnapshot(), filePath, request.line);
+    if (nodeId === null) {
+      void vscode.window.showInformationMessage(
+        'CodeGraph: this file is not part of the graph (unsupported or excluded).',
+      );
+      return;
+    }
+    await this.post({ type: 'focus', nodeId });
   }
 
   /** Closes the panel and releases resources. */
@@ -290,6 +345,8 @@ export class CodeGraphController implements vscode.Disposable {
     const service = session.service;
     if (!forceRescan && service.hasScanned) {
       await this.postGraph(service.getSnapshot());
+      this.graphShown = true;
+      await this.flushFocus();
       return;
     }
 
@@ -319,6 +376,8 @@ export class CodeGraphController implements vscode.Disposable {
       this.logger.info(
         `Graph up to date in the webview after ${String(Date.now() - startedAt)} ms.`,
       );
+      this.graphShown = true;
+      await this.flushFocus();
     } catch (error) {
       const message = describeError(error);
       this.logger.error(`Graph build failed: ${message}`);

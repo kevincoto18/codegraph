@@ -31,7 +31,9 @@ export type HostToWebview =
   | GraphInitMessage
   | { readonly type: 'graph/patch'; readonly patch: GraphPatch }
   | { readonly type: 'status'; readonly state: AnalysisState; readonly message?: string }
-  | { readonly type: 'options'; readonly options: ViewOptions };
+  | { readonly type: 'options'; readonly options: ViewOptions }
+  /** Focus a file or function (e.g. from "Show Connections"). */
+  | { readonly type: 'focus'; readonly nodeId: string };
 
 /**
  * One part of a full graph. A graph is sent as a sequence of these messages
@@ -227,6 +229,8 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
         COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode) &&
         FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode)
       );
+    case 'focus':
+      return typeof value.nodeId === 'string' && value.nodeId !== '';
     case 'status':
       return (
         ANALYSIS_STATES.includes(value.state as AnalysisState) &&
