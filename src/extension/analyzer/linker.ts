@@ -20,7 +20,8 @@ import type {
   RelPath,
 } from '../../shared';
 import { createEdgeId, createFileId, createFunctionId } from '../../shared';
-import { resolveImport } from './resolver';
+import type { LanguageRegistry } from './language';
+import { LANGUAGES } from './languages';
 import type { ImportBinding, ImportSyntax, ParsedCall, ParsedFile, ParsedFunction } from './types';
 
 /** Export name used for default exports. */
@@ -64,13 +65,18 @@ export type WorkspaceIndex = ReadonlyMap<RelPath, FileIndex>;
  *
  * @param parsedFiles - Parser output of every analyzable file.
  * @param version - Version number assigned to the snapshot.
+ * @param languages - Languages used to resolve imports.
  * @returns The graph snapshot.
  */
-export function linkGraph(parsedFiles: Iterable<ParsedFile>, version: number): GraphSnapshot {
+export function linkGraph(
+  parsedFiles: Iterable<ParsedFile>,
+  version: number,
+  languages: LanguageRegistry = LANGUAGES,
+): GraphSnapshot {
   const sortedFiles = [...parsedFiles].sort((a, b) => a.filePath.localeCompare(b.filePath));
   const knownFiles = new Set(sortedFiles.map((file) => file.filePath));
   const workspace: WorkspaceIndex = new Map(
-    sortedFiles.map((file) => [file.filePath, indexFile(file, knownFiles)]),
+    sortedFiles.map((file) => [file.filePath, indexFile(file, knownFiles, languages)]),
   );
 
   const nodes: GraphNode[] = [];
@@ -96,9 +102,14 @@ export function linkGraph(parsedFiles: Iterable<ParsedFile>, version: number): G
  *
  * @param parsed - Parser output of the file.
  * @param knownFiles - Paths of every analyzable file (for import resolution).
+ * @param languages - Languages used to resolve imports.
  * @returns The file index.
  */
-export function indexFile(parsed: ParsedFile, knownFiles: ReadonlySet<RelPath>): FileIndex {
+export function indexFile(
+  parsed: ParsedFile,
+  knownFiles: ReadonlySet<RelPath>,
+  languages: LanguageRegistry = LANGUAGES,
+): FileIndex {
   const functions = assignFunctionIds(parsed);
   const functionsByName = new Map<string, string>();
   const methodsByClass = new Map<string, Map<string, string>>();
@@ -117,7 +128,7 @@ export function indexFile(parsed: ParsedFile, knownFiles: ReadonlySet<RelPath>):
     methodsByClass.set(fn.className, methods);
   }
 
-  const { bindings, resolvedImports } = resolveFileImports(parsed, knownFiles);
+  const { bindings, resolvedImports } = resolveFileImports(parsed, knownFiles, languages);
 
   return {
     parsed,
@@ -152,17 +163,19 @@ function assignFunctionIds(parsed: ParsedFile): IndexedFunction[] {
  *
  * @param parsed - Parser output of the file.
  * @param knownFiles - Paths of every analyzable file.
+ * @param languages - Languages used to resolve imports.
  * @returns Resolved bindings by local name and resolved import targets.
  */
 function resolveFileImports(
   parsed: ParsedFile,
   knownFiles: ReadonlySet<RelPath>,
+  languages: LanguageRegistry,
 ): Pick<FileIndex, 'bindings' | 'resolvedImports'> {
   const bindings = new Map<string, ResolvedBinding>();
   const resolvedImports: (readonly [RelPath, number])[] = [];
 
   for (const parsedImport of parsed.imports) {
-    const targetFile = resolveImport(parsed.filePath, parsedImport.specifier, knownFiles);
+    const targetFile = languages.resolveImport(parsed.filePath, parsedImport.specifier, knownFiles);
     if (targetFile === null) {
       continue;
     }

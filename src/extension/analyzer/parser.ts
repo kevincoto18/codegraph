@@ -8,6 +8,7 @@
 import * as ts from 'typescript';
 
 import type { FunctionKind, RelPath } from '../../shared';
+import { TYPESCRIPT_LANGUAGE } from './typescriptLanguage';
 import type {
   ImportBinding,
   ParsedCall,
@@ -43,10 +44,10 @@ interface FunctionDescriptor {
 }
 
 /**
- * Version of the parser output format. Bump it whenever `parseSource` starts
- * producing different results, so persisted caches are discarded.
+ * Version of the parser output format; bump it in `typescriptLanguage.ts`
+ * whenever `parseSource` starts producing different results.
  */
-export const PARSER_VERSION = 1;
+export const PARSER_VERSION = TYPESCRIPT_LANGUAGE.version;
 
 /**
  * Parses one source file into raw imports, functions, calls and exports.

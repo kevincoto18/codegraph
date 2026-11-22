@@ -18,7 +18,8 @@ import {
   createFunctionNode,
   indexFile,
 } from './linker';
-import { listImportCandidates } from './resolver';
+import type { LanguageRegistry } from './language';
+import { LANGUAGES } from './languages';
 import type { ParsedFile } from './types';
 
 /** Changes applied to the linker in one batch. */
@@ -130,6 +131,13 @@ function diffElements<T extends { readonly id: string }>(
  *   bindings from a changed file (their call targets may have moved).
  */
 export class IncrementalLinker {
+  /**
+   * Creates an empty linker.
+   *
+   * @param languages - Languages used to resolve imports.
+   */
+  public constructor(private readonly languages: LanguageRegistry = LANGUAGES) {}
+
   private readonly knownFiles = new Set<RelPath>();
   private readonly indexes = new Map<RelPath, FileIndex>();
   private readonly contributions = new Map<RelPath, FileContribution>();
@@ -227,7 +235,7 @@ export class IncrementalLinker {
         continue;
       }
       this.unregister(filePath);
-      const index = indexFile(parsed, this.knownFiles);
+      const index = indexFile(parsed, this.knownFiles, this.languages);
       this.indexes.set(filePath, index);
       this.register(filePath, index);
     }
@@ -315,7 +323,7 @@ export class IncrementalLinker {
    */
   private register(filePath: RelPath, index: FileIndex): void {
     const candidates = index.parsed.imports.flatMap((parsedImport) =>
-      listImportCandidates(filePath, parsedImport.specifier),
+      this.languages.listImportCandidates(filePath, parsedImport.specifier),
     );
     const uniqueCandidates = [...new Set(candidates)];
     for (const candidate of uniqueCandidates) {

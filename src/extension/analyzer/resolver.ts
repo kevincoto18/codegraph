@@ -1,11 +1,13 @@
 /**
- * Resolution of relative module specifiers against the set of known
- * workspace files. Performs no I/O.
+ * TypeScript / JavaScript import resolution: relative module specifiers
+ * against the set of known workspace files. Performs no I/O.
  */
 import { posix } from 'node:path';
 
 import type { RelPath } from '../../shared';
-import { SUPPORTED_EXTENSIONS } from './config';
+
+/** Extensions of TypeScript and JavaScript files, in resolution priority order. */
+export const TYPESCRIPT_EXTENSIONS: readonly string[] = ['.ts', '.tsx', '.js', '.jsx'];
 
 /**
  * Maps a JavaScript extension written in a specifier to the TypeScript
@@ -46,8 +48,8 @@ export function buildCandidatePaths(basePath: RelPath): RelPath[] {
   const withoutExtension = basePath.slice(0, basePath.length - writtenExtension.length);
   candidates.push(...tsCounterparts.map((ext) => `${withoutExtension}${ext}`));
 
-  candidates.push(...SUPPORTED_EXTENSIONS.map((ext) => `${basePath}${ext}`));
-  candidates.push(...SUPPORTED_EXTENSIONS.map((ext) => `${basePath}/index${ext}`));
+  candidates.push(...TYPESCRIPT_EXTENSIONS.map((ext) => `${basePath}${ext}`));
+  candidates.push(...TYPESCRIPT_EXTENSIONS.map((ext) => `${basePath}/index${ext}`));
   return candidates;
 }
 

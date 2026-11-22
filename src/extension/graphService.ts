@@ -7,10 +7,10 @@
  * port, so the service can be unit-tested in memory.
  */
 import type { GraphPatch, GraphSnapshot, RelPath } from '../shared';
-import { isAnalyzableFile } from './analyzer/config';
 import { diffSnapshots, isEmptyPatch } from './analyzer/diff';
 import { IncrementalLinker } from './analyzer/incrementalLinker';
-import { PARSER_VERSION, parseSource } from './analyzer/parser';
+import { ANALYZERS } from './analyzer/analyzers';
+import type { AnalyzerRegistry } from './analyzer/language';
 import type { ParsedFile } from './analyzer/types';
 import type { FileStamp } from './cache';
 import { AnalysisCache } from './cache';
@@ -74,6 +74,8 @@ export interface GraphServiceOptions {
    * disposed after each scan). Omitted or returning `null`: parse inline.
    */
   readonly createParsePool?: () => ParsePool | null;
+  /** Languages and their parsers (defaults to every built-in language). */
+  readonly languages?: AnalyzerRegistry;
   /** Delay before persisting the cache after live updates, in milliseconds. */
   readonly persistDelayMs?: number;
 }
@@ -85,7 +87,7 @@ const CACHE_SCHEMA_VERSION = 1;
  * Compatibility key of the persisted cache: changes whenever the cache layout
  * or the parser output changes.
  */
-export const ANALYSIS_CACHE_KEY = `schema${String(CACHE_SCHEMA_VERSION)}-parser${String(PARSER_VERSION)}`;
+export const ANALYSIS_CACHE_KEY = `schema${String(CACHE_SCHEMA_VERSION)}-${ANALYZERS.versionKey}`;
 
 /** Default cap on analyzed files, to keep huge repositories responsive. */
 const DEFAULT_MAX_FILES = 5000;
@@ -142,7 +144,6 @@ function describeError(error: unknown): string {
  * applied in a single batch that produces a single patch.
  */
 export class GraphService {
-  private readonly linker = new IncrementalLinker();
   private currentVersion = 0;
   private snapshot: GraphSnapshot = { version: 0, nodes: [], edges: [] };
   private snapshotStale = false;
@@ -160,6 +161,8 @@ export class GraphService {
   private readonly persistDelayMs: number;
   private readonly tracker: PerformanceTracker;
   private readonly cache: AnalysisCache;
+  private readonly languages: AnalyzerRegistry;
+  private readonly linker: IncrementalLinker;
   private readonly store: CacheStore | undefined;
   private readonly graphStore: GraphStore | undefined;
   private readonly createParsePool: (() => ParsePool | null) | undefined;
@@ -183,7 +186,14 @@ export class GraphService {
     this.readConcurrency = options.readConcurrency ?? DEFAULT_READ_CONCURRENCY;
     this.persistDelayMs = options.persistDelayMs ?? DEFAULT_PERSIST_DELAY_MS;
     this.tracker = options.tracker ?? new PerformanceTracker();
-    this.cache = cache ?? new AnalysisCache(parseSource, this.tracker);
+    this.languages = options.languages ?? ANALYZERS;
+    this.linker = new IncrementalLinker(this.languages);
+    this.cache =
+      cache ??
+      new AnalysisCache(
+        (filePath, content) => this.languages.parse(filePath, content),
+        this.tracker,
+      );
     this.store = options.store;
     this.graphStore = options.graphStore;
     this.createParsePool = options.createParsePool;
@@ -392,7 +402,7 @@ export class GraphService {
    *   change of that batch), or `null` if the graph did not change.
    */
   public updateFile(filePath: RelPath): Promise<GraphPatch | null> {
-    if (!isAnalyzableFile(filePath)) {
+    if (!this.languages.isAnalyzableFile(filePath)) {
       return Promise.resolve(null);
     }
     return this.submit(filePath, 'update');
@@ -539,7 +549,9 @@ export class GraphService {
    * @returns At most `maxFiles` workspace-relative paths.
    */
   private async listAnalyzableFiles(): Promise<RelPath[]> {
-    const filePaths = (await this.reader.listFiles()).filter(isAnalyzableFile).sort();
+    const filePaths = (await this.reader.listFiles())
+      .filter((filePath) => this.languages.isAnalyzableFile(filePath))
+      .sort();
     if (filePaths.length > this.maxFiles) {
       this.logger.warn(
         `Workspace has ${String(filePaths.length)} source files; only the first ${String(this.maxFiles)} are analyzed.`,

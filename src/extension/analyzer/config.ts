@@ -1,32 +1,24 @@
 /**
- * Static configuration of which workspace files the analyzer handles.
+ * Which workspace files the analyzer handles, derived from the language registry.
  */
+import { EXCLUDED_DIRECTORIES } from './language';
+import { LANGUAGES } from './languages';
 
-/** File extensions the analyzer can parse. */
-export const SUPPORTED_EXTENSIONS: readonly string[] = ['.ts', '.tsx', '.js', '.jsx'];
+export { EXCLUDED_DIRECTORIES };
 
-/** Directory names that are never analyzed, at any depth. */
-export const EXCLUDED_DIRECTORIES: readonly string[] = ['node_modules', 'dist', 'build', '.git'];
+/** File extensions of every supported language. */
+export const SUPPORTED_EXTENSIONS: readonly string[] = LANGUAGES.extensions;
 
 /** Glob matching every candidate source file (for `workspace.findFiles`). */
-export const SOURCE_GLOB = `**/*.{${SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1)).join(',')}}`;
-
-/** Suffix of TypeScript declaration files, which contain no function bodies. */
-const DECLARATION_FILE_SUFFIX = '.d.ts';
+export const SOURCE_GLOB = LANGUAGES.sourceGlob;
 
 /**
  * Decides whether a workspace-relative path should be analyzed.
  *
  * @param filePath - Workspace-relative POSIX path.
- * @returns `true` if the file has a supported extension, is not a declaration
- *   file and does not live inside an excluded directory.
+ * @returns `true` if a supported language handles the file and it does not
+ *   live inside an excluded directory.
  */
 export function isAnalyzableFile(filePath: string): boolean {
-  if (filePath.endsWith(DECLARATION_FILE_SUFFIX)) {
-    return false;
-  }
-  if (!SUPPORTED_EXTENSIONS.some((ext) => filePath.endsWith(ext))) {
-    return false;
-  }
-  return !filePath.split('/').some((segment) => EXCLUDED_DIRECTORIES.includes(segment));
+  return LANGUAGES.isAnalyzableFile(filePath);
 }

@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 
 import type { RelPath } from '../shared';
-import { parseSource } from './analyzer/parser';
+import { parseFile } from './analyzer/analyzers';
 import type { ParsedFile } from './analyzer/types';
 import type { PerformanceTracker } from './perf';
 
@@ -77,7 +77,7 @@ export class AnalysisCache {
    * @param tracker - Optional tracker receiving `<prefix>.hash` and `<prefix>.parse` timings.
    */
   public constructor(
-    private readonly parse: ParseFunction = parseSource,
+    private readonly parse: ParseFunction = parseFile,
     private readonly tracker?: PerformanceTracker,
   ) {}
 

@@ -106,7 +106,7 @@ flowchart LR
 src/
 ├─ shared/        Environment-agnostic contract: graph model, ids, message protocol + guards
 ├─ extension/     VS Code host
-│  ├─ analyzer/   Pure analysis: config, parser, resolver, linker, incremental linker, diff
+│  ├─ analyzer/   Pure analysis: language registry, TS/JS language (parser, resolver), linker, incremental linker, diff
 │  ├─ cache.ts, cacheStore.ts, exclusions.ts, graphService.ts, changeScheduler.ts   Pure orchestration (unit-tested)
 │  ├─ analysis.ts Entry of the analyzer bundle (`dist/analysis.js`), loaded on first use
 │  └─ controller.ts, panel.ts, workspaceSync.ts, workspaceReader.ts, navigation.ts   VS Code adapters
@@ -164,6 +164,13 @@ persistence, exclusions, wire format, graph service (in-memory workspace), chang
 pure webview module (flow conversion, collapse, search, layout, patches).
 `src/extension/demoProject.test.ts` analyzes `samples/demo-project` end to end
 and asserts the complete expected graph.
+
+## Languages
+
+TypeScript and JavaScript are supported today. Every language plugs in
+through the same `LanguageAnalyzer` contract; see
+[docs/adding-a-language.md](docs/adding-a-language.md) for the design and the
+rollout plan (Python, Java, C#, Go next).
 
 ## Known limitations
 

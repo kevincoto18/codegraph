@@ -4,13 +4,13 @@
  */
 import { parentPort } from 'node:worker_threads';
 
-import { parseSource } from './analyzer/parser';
+import { parseFile } from './analyzer/analyzers';
 import type { ParseRequest, ParseResponse } from './parsePool';
 
 parentPort?.on('message', (request: ParseRequest) => {
   const response: ParseResponse = {
     id: request.id,
-    results: request.jobs.map((job) => parseSource(job.filePath, job.content)),
+    results: request.jobs.map((job) => parseFile(job.filePath, job.content)),
   };
   parentPort?.postMessage(response);
 });

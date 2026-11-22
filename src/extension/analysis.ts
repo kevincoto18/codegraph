@@ -8,7 +8,7 @@
  */
 import { join } from 'node:path';
 
-import { parseSource } from './analyzer/parser';
+import { parseFile } from './analyzer/analyzers';
 import type { ParsePool } from './parsePool';
 import { createParsePool } from './parsePool';
 
@@ -24,5 +24,5 @@ const PARSE_WORKER_FILE = 'parseWorker.js';
  * @returns The pool, or `null` on single-core machines.
  */
 export function createDefaultParsePool(): ParsePool | null {
-  return createParsePool(join(__dirname, PARSE_WORKER_FILE), parseSource);
+  return createParsePool(join(__dirname, PARSE_WORKER_FILE), parseFile);
 }
