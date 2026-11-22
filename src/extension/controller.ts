@@ -14,8 +14,8 @@ import type {
   WebviewToHost,
 } from '../shared';
 import { createGraphInitMessages } from '../shared';
-import { FileCacheStore } from './cacheStore';
-import type { GraphService } from './graphService';
+import { FileCacheStore, FileGraphStore } from './cacheStore';
+import type { GraphService, ScanProgressListener } from './graphService';
 import { openFileAtLine } from './navigation';
 import { formatPerformanceReport } from './perf';
 import { CodeGraphPanel } from './panel';
@@ -43,6 +43,9 @@ export interface CacheLocation {
 
 /** File name of the persisted parse cache inside the storage folder. */
 const CACHE_FILE_NAME = 'parse-cache.bin';
+
+/** File name of the last graph inside the storage folder. */
+const GRAPH_FILE_NAME = 'graph.bin';
 
 /** Number of progress steps reported during a scan (one every 2%). */
 const PROGRESS_STEPS = 50;
@@ -200,23 +203,29 @@ export class CodeGraphController implements vscode.Disposable {
    */
   private async createSession(folder: vscode.WorkspaceFolder): Promise<AnalysisSession> {
     const startedAt = Date.now();
-    const { GraphService: Service, ANALYSIS_CACHE_KEY } = await import('./analysis');
+    const {
+      GraphService: Service,
+      ANALYSIS_CACHE_KEY,
+      createDefaultParsePool,
+    } = await import('./analysis');
     const reader = new VsCodeWorkspaceReader(folder.uri);
     const storageUri = this.cacheLocation.storageUri;
-    const store =
+    const key = `${ANALYSIS_CACHE_KEY}-ext${this.cacheLocation.extensionVersion}`;
+    const stores =
       storageUri === undefined
-        ? undefined
-        : new FileCacheStore(
-            join(storageUri.fsPath, CACHE_FILE_NAME),
-            `${ANALYSIS_CACHE_KEY}-ext${this.cacheLocation.extensionVersion}`,
-            this.logger,
-          );
-    const service = new Service(
-      reader,
-      this.logger,
-      undefined,
-      store === undefined ? {} : { store },
-    );
+        ? {}
+        : {
+            store: new FileCacheStore(join(storageUri.fsPath, CACHE_FILE_NAME), key, this.logger),
+            graphStore: new FileGraphStore(
+              join(storageUri.fsPath, GRAPH_FILE_NAME),
+              key,
+              this.logger,
+            ),
+          };
+    const service = new Service(reader, this.logger, undefined, {
+      ...stores,
+      createParsePool: createDefaultParsePool,
+    });
     const sync = new WorkspaceSync(
       folder.uri,
       reader,
@@ -278,17 +287,38 @@ export class CodeGraphController implements vscode.Disposable {
     if (session === undefined) {
       return;
     }
-    if (!forceRescan && session.service.version > 0) {
-      await this.postGraph(session.service.getSnapshot());
+    const service = session.service;
+    if (!forceRescan && service.hasScanned) {
+      await this.postGraph(service.getSnapshot());
       return;
     }
 
+    // Show the graph of the previous session right away, then rescan.
+    const saved = forceRescan ? null : await service.loadSavedGraph();
+    if (saved !== null) {
+      this.logger.info(`Showing the graph saved by the previous session while rescanning.`);
+      await this.postGraph(saved);
+    }
     await this.post({ type: 'status', state: 'analyzing' });
     const startedAt = Date.now();
     try {
-      const graph = await this.scanWithProgress(session.service);
-      this.logger.info(`Graph sent to webview after ${String(Date.now() - startedAt)} ms.`);
-      await this.postGraph(graph);
+      if (saved === null) {
+        const graph = await this.withScanProgress((onProgress) => service.initialize(onProgress));
+        await this.postGraph(graph);
+      } else {
+        const { snapshot, patch } = await this.withScanProgress((onProgress) =>
+          service.revalidate(saved, onProgress),
+        );
+        if (patch === null) {
+          await this.postGraph(snapshot);
+        } else {
+          await this.postPatch(patch);
+          await this.post({ type: 'status', state: 'ready' });
+        }
+      }
+      this.logger.info(
+        `Graph up to date in the webview after ${String(Date.now() - startedAt)} ms.`,
+      );
     } catch (error) {
       const message = describeError(error);
       this.logger.error(`Graph build failed: ${message}`);
@@ -297,18 +327,18 @@ export class CodeGraphController implements vscode.Disposable {
   }
 
   /**
-   * Scans the workspace showing progress in the VS Code status bar.
+   * Runs a scan showing its progress in the VS Code status bar.
    *
-   * @param service - Service of the current session.
-   * @returns The new snapshot.
+   * @param scan - Scan to run; receives the progress listener.
+   * @returns The scan's result.
    */
-  private scanWithProgress(service: GraphService): Promise<GraphSnapshot> {
+  private withScanProgress<T>(scan: (onProgress: ScanProgressListener) => Promise<T>): Promise<T> {
     return Promise.resolve(
       vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: 'CodeGraph' },
         (progress) => {
           let lastStep = -1;
-          return service.initialize((done, total) => {
+          return scan((done, total) => {
             const step = total === 0 ? PROGRESS_STEPS : Math.floor((done * PROGRESS_STEPS) / total);
             if (step !== lastStep) {
               lastStep = step;

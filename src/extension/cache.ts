@@ -105,22 +105,56 @@ export class AnalysisCache {
    * @returns The parse result and whether it was recomputed.
    */
   public update(filePath: RelPath, content: string, stamp?: FileStamp): CacheUpdateResult {
-    const hash = this.timed(`${this.metricPrefix}.hash`, () => hashContent(content));
-    const cached = this.entries.get(filePath);
-    if (cached?.hash === hash) {
-      if (stamp !== undefined && !isSameStamp(cached.stamp, stamp)) {
-        this.entries.set(filePath, { ...cached, stamp });
-      }
-      return { parsed: cached.parsed, changed: false };
+    const { hash, cached } = this.lookup(filePath, content, stamp);
+    if (cached !== undefined) {
+      return { parsed: cached, changed: false };
     }
     const parsed = this.timed(`${this.metricPrefix}.parse`, () => this.parse(filePath, content));
+    this.store(filePath, hash, parsed, stamp);
+    return { parsed, changed: true };
+  }
+
+  /**
+   * Hashes a file's content and returns the cached result if it still applies
+   * (refreshing the entry's stamp). Used with {@link store} when parsing
+   * happens elsewhere, e.g. on worker threads.
+   *
+   * @param filePath - Workspace-relative POSIX path.
+   * @param content - Current file text.
+   * @param stamp - Stamp of the file when it was read, if known.
+   * @returns The content hash and the cached result, if the hash matches.
+   */
+  public lookup(
+    filePath: RelPath,
+    content: string,
+    stamp?: FileStamp,
+  ): { hash: string; cached: ParsedFile | undefined } {
+    const hash = this.timed(`${this.metricPrefix}.hash`, () => hashContent(content));
+    const cached = this.entries.get(filePath);
+    if (cached?.hash !== hash) {
+      return { hash, cached: undefined };
+    }
+    if (stamp !== undefined && !isSameStamp(cached.stamp, stamp)) {
+      this.entries.set(filePath, { ...cached, stamp });
+    }
+    return { hash, cached: cached.parsed };
+  }
+
+  /**
+   * Stores a parse result computed outside the cache.
+   *
+   * @param filePath - Workspace-relative POSIX path.
+   * @param hash - Hash of the parsed content (from {@link lookup}).
+   * @param parsed - Parse result.
+   * @param stamp - Stamp of the file when it was read, if known.
+   */
+  public store(filePath: RelPath, hash: string, parsed: ParsedFile, stamp?: FileStamp): void {
     this.entries.set(filePath, {
       filePath,
       hash,
       parsed,
       ...(stamp === undefined ? {} : { stamp }),
     });
-    return { parsed, changed: true };
   }
 
   /**

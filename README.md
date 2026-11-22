@@ -138,6 +138,12 @@ chunks.
 - **Cheap saves**: queued changes are applied as one batch, and only the
   changed files, the files whose imports may now resolve differently and the
   importers of changed files are re-linked.
+- **Instant reopen**: the last graph is saved too and shown immediately; the
+  rescan then sends only what changed.
+- **Parallel parsing**: large scans (3,000+ files) parse on worker threads
+  (`dist/parseWorker.js`) as well as the main thread.
+- **Large canvases**: the canvas mounts at its final zoom, skips edges while
+  zoomed out on very large graphs, and **Expand all** stops at 15,000 nodes.
 
 ## Scripts
 

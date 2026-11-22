@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { CacheEntry } from './cache';
-import { FileCacheStore, isPersistedCache } from './cacheStore';
+import type { GraphSnapshot } from '../shared';
+import { FileCacheStore, FileGraphStore, isPersistedCache, isPersistedGraph } from './cacheStore';
 
 /** Entry used by every test. */
 const ENTRY: CacheEntry = {
@@ -72,5 +73,46 @@ describe('isPersistedCache', () => {
     expect(isPersistedCache({ key: 'k', entries: {} }, 'k')).toBe(false);
     expect(isPersistedCache({ key: 'x', entries: [] }, 'k')).toBe(false);
     expect(isPersistedCache(null, 'k')).toBe(false);
+  });
+});
+
+/** Small graph used by the graph store tests. */
+const GRAPH: GraphSnapshot = {
+  version: 4,
+  nodes: [
+    { id: 'a.ts', kind: 'file', label: 'a.ts', filePath: 'a.ts', line: 1, functionIds: [] },
+    { id: 'b.ts', kind: 'file', label: 'b.ts', filePath: 'b.ts', line: 1, functionIds: [] },
+  ],
+  edges: [{ id: 'import:a.ts->b.ts', kind: 'import', source: 'a.ts', target: 'b.ts', line: 1 }],
+};
+
+describe('FileGraphStore', () => {
+  let directory = '';
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), 'codegraph-graph-'));
+  });
+
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it('round-trips a graph', async () => {
+    const store = new FileGraphStore(join(directory, 'graph.bin'), 'k', logger);
+    await store.save(GRAPH);
+    expect(await store.load()).toEqual(GRAPH);
+  });
+
+  it('returns null when missing or written with another key', async () => {
+    const path = join(directory, 'graph.bin');
+    expect(await new FileGraphStore(path, 'k', logger).load()).toBeNull();
+    await new FileGraphStore(path, 'old', logger).save(GRAPH);
+    expect(await new FileGraphStore(path, 'new', logger).load()).toBeNull();
+  });
+
+  it('validates the persisted shape', () => {
+    expect(isPersistedGraph({ key: 'k', version: 1, chunks: [] }, 'k')).toBe(true);
+    expect(isPersistedGraph({ key: 'k', version: 0, chunks: [] }, 'k')).toBe(false);
+    expect(isPersistedGraph({ key: 'k', version: 1 }, 'k')).toBe(false);
   });
 });

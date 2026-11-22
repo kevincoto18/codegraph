@@ -65,6 +65,11 @@ const builds = [
     entryPoints: ['src/extension/analysis.ts'],
     outfile: 'dist/analysis.js',
   },
+  {
+    ...commonOptions,
+    entryPoints: ['src/extension/parseWorker.ts'],
+    outfile: 'dist/parseWorker.js',
+  },
 ];
 
 /**

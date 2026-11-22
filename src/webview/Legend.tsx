@@ -1,11 +1,18 @@
 import type { JSX } from 'react';
 
+/** Props of {@link Legend}. */
+interface LegendProps {
+  /** Whether edges are currently skipped because the canvas is zoomed out. */
+  readonly edgesHidden: boolean;
+}
+
 /**
  * Explains the edge styles: dashed purple imports and solid blue calls.
  *
+ * @param props - Whether edges are hidden at this zoom.
  * @returns The legend element.
  */
-export function Legend(): JSX.Element {
+export function Legend({ edgesHidden }: LegendProps): JSX.Element {
   return (
     <div className="cg-legend" aria-label="Legend">
       <div className="cg-legend__row">
@@ -23,6 +30,9 @@ export function Legend(): JSX.Element {
       <div className="cg-legend__row">
         <span className="cg-legend__count">×n</span>n connections merged (collapsed file or folder)
       </div>
+      {edgesHidden && (
+        <div className="cg-legend__row cg-legend__hint">Zoom in to see the connections</div>
+      )}
     </div>
   );
 }

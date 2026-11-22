@@ -143,6 +143,126 @@ export function getIdsToReveal(
   return reveal;
 }
 
+/** Most nodes "Expand all" opens; drawing more makes the webview unresponsive. */
+export const EXPAND_ALL_NODE_BUDGET = 15_000;
+
+/** Outcome of {@link planExpandAll}. */
+export interface ExpandAllPlan {
+  /** Collapsed containers after expanding. */
+  readonly collapsedIds: Set<string>;
+  /** `false` when the budget stopped the expansion before everything was open. */
+  readonly complete: boolean;
+}
+
+/**
+ * Opens containers level by level (folders first, then files) until
+ * everything is open or the number of drawn nodes would exceed a budget.
+ *
+ * @param snapshot - Graph snapshot.
+ * @param folderTree - Folder hierarchy, or `null` without folder view.
+ * @param collapsedIds - Currently collapsed containers.
+ * @param budget - Maximum number of nodes to draw.
+ * @returns The new collapsed set and whether everything could be opened.
+ */
+export function planExpandAll(
+  snapshot: GraphSnapshot,
+  folderTree: FolderTree | null,
+  collapsedIds: ReadonlySet<string>,
+  budget: number = EXPAND_ALL_NODE_BUDGET,
+): ExpandAllPlan {
+  const functionCount = new Map<string, number>();
+  const rootFileIds: string[] = [];
+  for (const node of snapshot.nodes) {
+    if (node.kind === 'file') {
+      functionCount.set(node.id, node.functionIds.length);
+      rootFileIds.push(node.id);
+    }
+  }
+  // Files without functions cost nothing to open.
+  const collapsed = new Set([...collapsedIds].filter((id) => functionCount.get(id) !== 0));
+
+  /**
+   * Lists the visible containers and counts the visible nodes.
+   *
+   * @returns Visible collapsed folders, visible collapsed files and the node count.
+   */
+  const inspect = (): { folders: string[]; files: string[]; visible: number } => {
+    const folders: string[] = [];
+    const files: string[] = [];
+    let visible = 0;
+    /**
+     * Counts a visible file and its visible functions.
+     *
+     * @param fileId - File id.
+     */
+    const visitFile = (fileId: string): void => {
+      visible += 1;
+      if (collapsed.has(fileId)) {
+        files.push(fileId);
+      } else {
+        visible += functionCount.get(fileId) ?? 0;
+      }
+    };
+    /**
+     * Counts a visible folder and, if open, its content.
+     *
+     * @param tree - Folder hierarchy.
+     * @param folderId - Folder id.
+     */
+    const visitFolder = (tree: FolderTree, folderId: string): void => {
+      visible += 1;
+      if (collapsed.has(folderId)) {
+        folders.push(folderId);
+        return;
+      }
+      const folder = tree.folders.get(folderId);
+      folder?.folderIds.forEach((childId) => {
+        visitFolder(tree, childId);
+      });
+      folder?.fileIds.forEach(visitFile);
+    };
+    if (folderTree === null) {
+      rootFileIds.forEach(visitFile);
+    } else {
+      folderTree.rootFolderIds.forEach((folderId) => {
+        visitFolder(folderTree, folderId);
+      });
+      folderTree.rootFileIds.forEach(visitFile);
+    }
+    return { folders, files, visible };
+  };
+
+  /**
+   * Counts the nodes that opening a container adds.
+   *
+   * @param id - Folder or file id.
+   * @returns Number of newly visible nodes.
+   */
+  const costOf = (id: string): number => {
+    const folder = folderTree?.folders.get(id);
+    return folder === undefined
+      ? (functionCount.get(id) ?? 0)
+      : folder.folderIds.length + folder.fileIds.length;
+  };
+
+  for (;;) {
+    const { folders, files, visible } = inspect();
+    const level =
+      folders.length > 0 ? folders : files.filter((id) => (functionCount.get(id) ?? 0) > 0);
+    if (level.length === 0) {
+      return { collapsedIds: collapsed, complete: true };
+    }
+    let total = visible;
+    for (const id of level) {
+      total += costOf(id);
+      if (total > budget) {
+        return { collapsedIds: collapsed, complete: false };
+      }
+      collapsed.delete(id);
+    }
+  }
+}
+
 /**
  * Returns a copy of a set with one id toggled.
  *

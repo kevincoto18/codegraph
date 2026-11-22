@@ -8,13 +8,14 @@
  */
 import type { GraphPatch, GraphSnapshot, RelPath } from '../shared';
 import { isAnalyzableFile } from './analyzer/config';
-import { isEmptyPatch } from './analyzer/diff';
+import { diffSnapshots, isEmptyPatch } from './analyzer/diff';
 import { IncrementalLinker } from './analyzer/incrementalLinker';
 import { PARSER_VERSION, parseSource } from './analyzer/parser';
 import type { ParsedFile } from './analyzer/types';
 import type { FileStamp } from './cache';
 import { AnalysisCache } from './cache';
-import type { CacheStore } from './cacheStore';
+import type { CacheStore, GraphStore } from './cacheStore';
+import type { ParseJob, ParsePool } from './parsePool';
 import type { FileChangeKind } from './changeScheduler';
 import { PerformanceTracker } from './perf';
 
@@ -66,6 +67,13 @@ export interface GraphServiceOptions {
   readonly tracker?: PerformanceTracker;
   /** Persists the parse cache between sessions; nothing is persisted when omitted. */
   readonly store?: CacheStore;
+  /** Persists the last graph, shown instantly on the next session; optional. */
+  readonly graphStore?: GraphStore;
+  /**
+   * Creates a pool that parses on worker threads during large scans (it is
+   * disposed after each scan). Omitted or returning `null`: parse inline.
+   */
+  readonly createParsePool?: () => ParsePool | null;
   /** Delay before persisting the cache after live updates, in milliseconds. */
   readonly persistDelayMs?: number;
 }
@@ -84,6 +92,33 @@ const DEFAULT_MAX_FILES = 5000;
 
 /** Default number of parallel file reads. */
 const DEFAULT_READ_CONCURRENCY = 32;
+
+/**
+ * Largest share of changed nodes for which {@link GraphService.revalidate}
+ * returns a patch; above it, sending the whole graph is cheaper.
+ */
+const MAX_REVALIDATION_CHANGE_RATIO = 0.2;
+
+/** Changed nodes always accepted in a revalidation patch, whatever the graph size. */
+const MIN_REVALIDATION_PATCH_NODES = 1000;
+
+/** Result of {@link GraphService.revalidate}. */
+export interface RevalidationResult {
+  /** The up-to-date graph. */
+  readonly snapshot: GraphSnapshot;
+  /**
+   * Changes from the saved graph to the up-to-date one (possibly empty), or
+   * `null` when they are too large and the whole graph should be sent instead.
+   */
+  readonly patch: GraphPatch | null;
+}
+
+/**
+ * Fewest files to parse for a scan to use worker threads. Each worker loads
+ * its own TypeScript compiler (~0.3 s), which only pays off on large scans;
+ * smaller scans parse inline.
+ */
+export const MIN_FILES_FOR_WORKERS = 3000;
 
 /** Default delay before persisting the cache after live updates. */
 const DEFAULT_PERSIST_DELAY_MS = 2000;
@@ -117,6 +152,7 @@ export class GraphService {
   /** Result of the batch that will apply {@link pending}, once scheduled. */
   private pendingBatch: Promise<GraphPatch | null> | null = null;
   private persistedCacheLoaded = false;
+  private scanned = false;
   private persistTimer: ReturnType<typeof setTimeout> | undefined;
   private persisting: Promise<void> = Promise.resolve();
   private readonly maxFiles: number;
@@ -125,6 +161,8 @@ export class GraphService {
   private readonly tracker: PerformanceTracker;
   private readonly cache: AnalysisCache;
   private readonly store: CacheStore | undefined;
+  private readonly graphStore: GraphStore | undefined;
+  private readonly createParsePool: (() => ParsePool | null) | undefined;
 
   /**
    * Creates the service.
@@ -147,6 +185,8 @@ export class GraphService {
     this.tracker = options.tracker ?? new PerformanceTracker();
     this.cache = cache ?? new AnalysisCache(parseSource, this.tracker);
     this.store = options.store;
+    this.graphStore = options.graphStore;
+    this.createParsePool = options.createParsePool;
   }
 
   /** Per-stage timings of scans, updates and removals. */
@@ -167,9 +207,61 @@ export class GraphService {
     return this.snapshot;
   }
 
-  /** Version of the current graph (0 before the first scan). */
+  /** Version of the current graph (0 before the first scan or saved graph). */
   public get version(): number {
     return this.currentVersion;
+  }
+
+  /** Whether the workspace has been scanned in this session. */
+  public get hasScanned(): boolean {
+    return this.scanned;
+  }
+
+  /**
+   * Loads the graph saved by the previous session, so it can be shown before
+   * the workspace is rescanned. The next scan continues its version numbering,
+   * so {@link revalidate} can express the differences as the next patch.
+   *
+   * @returns The saved graph, or `null` if there is none or a scan already ran.
+   */
+  public async loadSavedGraph(): Promise<GraphSnapshot | null> {
+    if (this.graphStore === undefined || this.currentVersion !== 0) {
+      return null;
+    }
+    const saved = await this.tracker.measureAsync('saved.load', () =>
+      this.graphStore === undefined ? Promise.resolve(null) : this.graphStore.load(),
+    );
+    // A scan may have finished while the file was loading: it is more recent.
+    if (saved === null || this.version !== 0) {
+      return null;
+    }
+    this.currentVersion = saved.version;
+    return saved;
+  }
+
+  /**
+   * Rescans the workspace after a saved graph was shown, and computes what changed.
+   *
+   * @param saved - Graph returned by {@link loadSavedGraph}.
+   * @param onProgress - Optional listener of the scan progress.
+   * @returns The up-to-date graph and the patch from the saved one.
+   */
+  public async revalidate(
+    saved: GraphSnapshot,
+    onProgress?: ScanProgressListener,
+  ): Promise<RevalidationResult> {
+    const snapshot = await this.initialize(onProgress);
+    if (snapshot.version !== saved.version + 1) {
+      return { snapshot, patch: null };
+    }
+    const patch = this.tracker.measure('saved.diff', () => diffSnapshots(saved, snapshot));
+    const changedNodes = patch.upsertNodes.length + patch.removeNodeIds.length;
+    const allowed = Math.max(
+      MIN_REVALIDATION_PATCH_NODES,
+      MAX_REVALIDATION_CHANGE_RATIO * snapshot.nodes.length,
+    );
+    const tooLarge = changedNodes > allowed;
+    return { snapshot, patch: tooLarge ? null : patch };
   }
 
   /**
@@ -220,9 +312,7 @@ export class GraphService {
         }),
       );
       const failed = new Set(toRead.filter((filePath) => !contents.has(filePath)));
-      for (const [filePath, content] of contents) {
-        this.cache.update(filePath, content, stamps.get(filePath));
-      }
+      await this.parseContents(contents, stamps);
       const analyzed = filePaths.filter((filePath) => !failed.has(filePath));
       this.cache.retain(new Set(analyzed));
 
@@ -235,6 +325,7 @@ export class GraphService {
       });
       this.currentVersion += 1;
       this.snapshotStale = true;
+      this.scanned = true;
       const snapshot = this.getSnapshot();
 
       const totalMs = performance.now() - startedAt;
@@ -249,6 +340,47 @@ export class GraphService {
       this.persistNow();
       return snapshot;
     });
+  }
+
+  /**
+   * Parses the files whose content is not cached, on worker threads when
+   * there are many of them, and stores the results in the cache.
+   *
+   * @param contents - Content of the files read by the scan.
+   * @param stamps - Stamps of the files, when known.
+   */
+  private async parseContents(
+    contents: ReadonlyMap<RelPath, string>,
+    stamps: ReadonlyMap<RelPath, FileStamp>,
+  ): Promise<void> {
+    const jobs: (ParseJob & { readonly hash: string })[] = [];
+    for (const [filePath, content] of contents) {
+      const { hash, cached } = this.cache.lookup(filePath, content, stamps.get(filePath));
+      if (cached === undefined) {
+        jobs.push({ filePath, content, hash });
+      }
+    }
+    const pool = jobs.length >= MIN_FILES_FOR_WORKERS ? (this.createParsePool?.() ?? null) : null;
+    if (pool !== null) {
+      try {
+        const results = await this.tracker.measureAsync('scan.parse', () => pool.parseAll(jobs));
+        jobs.forEach((job, index) => {
+          const parsed = results[index];
+          if (parsed !== undefined) {
+            this.cache.store(job.filePath, job.hash, parsed, stamps.get(job.filePath));
+          }
+        });
+        this.tracker.record('scan.parseWorkers', 1, 'count');
+        return;
+      } catch (error) {
+        this.logger.warn(`Parallel parsing failed, parsing inline: ${describeError(error)}`);
+      } finally {
+        await pool.dispose();
+      }
+    }
+    for (const job of jobs) {
+      this.cache.update(job.filePath, job.content, stamps.get(job.filePath));
+    }
   }
 
   /**
@@ -369,7 +501,7 @@ export class GraphService {
 
   /** Persists the cache after a quiet period, so bursts of saves write once. */
   private schedulePersist(): void {
-    if (this.store === undefined) {
+    if (this.store === undefined && this.graphStore === undefined) {
       return;
     }
     clearTimeout(this.persistTimer);
@@ -378,18 +510,26 @@ export class GraphService {
     }, this.persistDelayMs);
   }
 
-  /** Saves the cache now (after any save still in progress). Failures are logged. */
+  /**
+   * Saves the cache and the graph now (after any save still in progress).
+   * Failures are logged.
+   */
   private persistNow(): void {
-    const store = this.store;
-    if (store === undefined) {
+    const { store, graphStore } = this;
+    if (store === undefined && graphStore === undefined) {
       return;
     }
     clearTimeout(this.persistTimer);
     this.persistTimer = undefined;
     this.persisting = this.persisting
-      .then(() => store.save(this.cache.exportEntries()))
+      .then(async () => {
+        await store?.save(this.cache.exportEntries());
+        if (graphStore !== undefined && this.scanned) {
+          await graphStore.save(this.getSnapshot());
+        }
+      })
       .catch((error: unknown) => {
-        this.logger.warn(`Could not persist the parse cache: ${describeError(error)}`);
+        this.logger.warn(`Could not persist the analysis: ${describeError(error)}`);
       });
   }
 

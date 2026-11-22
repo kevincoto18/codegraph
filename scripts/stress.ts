@@ -6,15 +6,18 @@
  * persisted cache, message size, single saves, a burst of saves, renaming a
  * hub export, deleting a whole folder, and retained memory.
  *
- * Usage: npm run stress [-- --sizes S,M,L,XL]
+ * Usage: npm run stress [-- --sizes S,M,L,XL] [--workers dist/parseWorker.js]
  */
 import { stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { availableParallelism, tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import type { FileStamp } from '../src/extension/cache';
-import { FileCacheStore } from '../src/extension/cacheStore';
+import { FileCacheStore, FileGraphStore } from '../src/extension/cacheStore';
+import { parseSource } from '../src/extension/analyzer/parser';
+import type { GraphServiceOptions } from '../src/extension/graphService';
 import { ANALYSIS_CACHE_KEY, GraphService } from '../src/extension/graphService';
+import { chooseWorkerCount, createParsePool } from '../src/extension/parsePool';
 import { PerformanceTracker } from '../src/extension/perf';
 import type { GraphPatch, GraphSnapshot } from '../src/shared';
 import { createGraphInitMessages } from '../src/shared';
@@ -35,6 +38,24 @@ import { formatBytes, formatCount, formatMs, markdownTable, summarize } from './
 
 /** Number of rapid saves in the burst scenario. */
 const BURST_SIZE = 200;
+
+/**
+ * Path of the built parser worker (`--workers dist/parseWorker.js`); scans
+ * parse inline when omitted.
+ */
+let parseWorkerPath: string | undefined;
+
+/**
+ * Builds the service option that enables parallel parsing, if requested.
+ *
+ * @returns The option, or nothing.
+ */
+function parallelParsing(): Pick<GraphServiceOptions, 'createParsePool'> {
+  const workerPath = parseWorkerPath;
+  return workerPath === undefined
+    ? {}
+    : { createParsePool: () => createParsePool(workerPath, parseSource) };
+}
 
 /** Saves applied one at a time to measure the latency of a single save. */
 const SINGLE_SAVES = 30;
@@ -116,9 +137,18 @@ class StampedFileSystemReader extends FileSystemReader {
  * @returns Stage totals of the second session's scan.
  */
 async function runWarmStart(folder: string): Promise<Record<string, number>> {
-  const cachePath = join(tmpdir(), 'codegraph-stress-cache', 'parse-cache.bin');
-  const store = new FileCacheStore(cachePath, ANALYSIS_CACHE_KEY, quietLogger);
-  const options = { maxFiles: Number.POSITIVE_INFINITY, store };
+  const cacheDir = join(tmpdir(), 'codegraph-stress-cache');
+  const store = new FileCacheStore(
+    join(cacheDir, 'parse-cache.bin'),
+    ANALYSIS_CACHE_KEY,
+    quietLogger,
+  );
+  const graphStore = new FileGraphStore(
+    join(cacheDir, 'graph.bin'),
+    ANALYSIS_CACHE_KEY,
+    quietLogger,
+  );
+  const options = { maxFiles: Number.POSITIVE_INFINITY, store, graphStore, ...parallelParsing() };
   const first = new GraphService(
     new StampedFileSystemReader(folder),
     quietLogger,
@@ -133,11 +163,18 @@ async function runWarmStart(folder: string): Promise<Record<string, number>> {
     ...options,
     tracker,
   });
-  await second.initialize();
+  // What the user sees first: the graph saved by the previous session.
+  const saved = await second.loadSavedGraph();
+  if (saved === null) {
+    throw new Error('The first session did not save its graph.');
+  }
+  await second.revalidate(saved);
   const stages: Record<string, number> = {};
   for (const name of ['cacheLoad', 'list', 'stat', 'read', 'link', 'total']) {
     stages[name] = tracker.get(`scan.${name}`)?.total ?? Number.NaN;
   }
+  stages.savedGraph = tracker.get('saved.load')?.total ?? Number.NaN;
+  stages.diff = tracker.get('saved.diff')?.total ?? Number.NaN;
   return stages;
 }
 
@@ -344,6 +381,7 @@ async function runSize(size: StressSize, seed: number): Promise<SizeResult> {
   const service = new GraphService(reader, quietLogger, undefined, {
     maxFiles: Number.POSITIVE_INFINITY,
     tracker,
+    ...parallelParsing(),
   });
 
   console.log('  cold scan…');
@@ -433,7 +471,11 @@ function renderReport(results: readonly SizeResult[]): string {
   return [
     '# CodeGraph — host stress test',
     '',
-    `Node ${process.version} · ${process.platform}/${process.arch} · ${new Date().toISOString()}`,
+    `Node ${process.version} · ${process.platform}/${process.arch} · ${String(availableParallelism())} cores · parsing: ${
+      parseWorkerPath === undefined
+        ? 'inline'
+        : `${String(chooseWorkerCount(availableParallelism()))} worker(s) + main thread`
+    } · ${new Date().toISOString()}`,
     '',
     '## Project',
     '',
@@ -458,11 +500,12 @@ function renderReport(results: readonly SizeResult[]): string {
         row('Link', (r) => formatMs(r.coldScan.link)),
         row('**Total**', (r) => `**${formatMs(r.coldScan.total)}**`),
         row('Repeated scan (p50, same session)', (r) => formatMs(r.repeatedScanMs.p50)),
-        row('Warm start (new session, persisted cache)', (r) => formatMs(r.warmStart.total)),
+        row('Saved graph shown (new session)', (r) => formatMs(r.warmStart.savedGraph)),
+        row('Warm start rescan (persisted cache)', (r) => formatMs(r.warmStart.total)),
         row(
-          '↳ cache load / list / stat / link',
+          '↳ cache load / list / stat / link / diff vs saved',
           (r) =>
-            `${formatMs(r.warmStart.cacheLoad)} / ${formatMs(r.warmStart.list)} / ${formatMs(r.warmStart.stat)} / ${formatMs(r.warmStart.link)}`,
+            `${formatMs(r.warmStart.cacheLoad)} / ${formatMs(r.warmStart.list)} / ${formatMs(r.warmStart.stat)} / ${formatMs(r.warmStart.link)} / ${formatMs(r.warmStart.diff)}`,
         ),
       ],
     ),
@@ -524,6 +567,8 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const sizes = parseSizes(readFlag(args, 'sizes'), ['S', 'M', 'L']);
   const seed = Number(readFlag(args, 'seed') ?? 42);
+  const workers = readFlag(args, 'workers');
+  parseWorkerPath = workers === undefined ? undefined : resolve(workers);
   const results: SizeResult[] = [];
   for (const size of sizes) {
     results.push(await runSize(size, seed));

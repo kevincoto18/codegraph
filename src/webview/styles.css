@@ -505,3 +505,25 @@ body {
   text-align: center;
   color: var(--vscode-foreground);
 }
+
+/* ---------- Notice ---------- */
+
+.cg-notice {
+  position: absolute;
+  z-index: 10;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 70%;
+  padding: 6px 12px;
+  border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.cg-legend__hint {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}

@@ -177,7 +177,7 @@ export class WorkspaceSync implements vscode.Disposable {
    * @param kind - What happened to the file.
    */
   private async applyChange(filePath: RelPath, kind: FileChangeKind): Promise<void> {
-    if (this.service.version === 0) {
+    if (!this.service.hasScanned) {
       return; // The initial scan has not run yet; it will pick the change up.
     }
     try {

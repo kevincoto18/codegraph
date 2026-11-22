@@ -85,12 +85,46 @@ Notes:
   search was still re-rendering; a separate profile of M after 4 s shows
   60 FPS with the main thread idle.
 
+## Round 2 — follow-up optimizations
+
+After the first comparison, four follow-ups were implemented and measured in
+the same environment:
+
+| Change | Before | After |
+|---|---:|---:|
+| **Saved graph shown on reopen** (stale-while-revalidate: the last graph is shown at once, the rescan sends a patch) | XL 4 s · L 1 s to first graph | **XL 435 ms · L 91 ms** |
+| **Expand all with a 15,000-node budget** | XL: tab crashes | XL: no crash, partial expansion with a notice |
+| **Mount at the final zoom + no edges below the low-detail zoom above 3,000 edges** | flat L first paint 13.4 s · pan 5 FPS | **flat L 5.4 s · pan 56 FPS** (M: 2.4 s → 1.0 s) |
+| **Parsing on worker threads** (from 3,000 files, falls back to inline) | XL cold scan 6.5 s (parse 3.3 s) | **XL 5.5 s (parse 2.6 s)** with 1 worker + main thread on 2 cores |
+
+Other figures of round 2 (folder view): first paint M 111 ms · L 248 ms · XL
+693 ms; first "Expand level" XL 183 ms (was 1.43 s); Collapse all L 272 ms;
+pan/zoom 60 FPS in M, L and XL.
+
+Notes:
+
+- The flat view was slow because React inserts large lists into an already
+  mounted container in quadratic time (`getHostSibling`): fitting the view
+  after mounting first rendered at zoom 1 and then inserted thousands of
+  nodes and ~30,000 edges. Mounting directly at the fitted zoom and skipping
+  edges while zoomed out avoids most of it.
+- Workers load their own TypeScript compiler (~0.3 s each), so on 2 cores
+  they only pay off for large scans (S/M were slower), hence the 3,000-file
+  threshold. Machines with more cores run up to 4 workers.
+- The diff between the saved graph and the rescanned one costs 1.4 s in XL,
+  but runs in the background while the saved graph is already on screen.
+- In 2 of 4 UI runs, "Collapse all" in S (flat view, right after panning the
+  expanded graph) did not complete within the harness timeout; the other
+  runs and manual reproduction took ~0.6 s. Kept under observation.
+
 ## What is left
 
 | Finding | Impact | Possible fix |
 |---|---|---|
-| **Expand all** on XL renders 235k nodes and crashes the tab | High (XL only) | Ask for confirmation or cap it above N nodes |
-| Flat view above ~2,000 files draws tens of thousands of edges | Medium (only with `folderView: never`) | Hide edges below the low-detail zoom, or recommend the folder view |
-| Warm start XL 4 s: cache deserialize 1.7 s + full link 1.8 s | Medium | Persist the linked graph too, or link in a worker |
-| Cold scan XL 6.5 s, parse 3.5 s on one thread | Medium | Parse in worker threads (postponed from P4) |
+| ~~Expand all on XL crashes the tab~~ | — | Done (round 2): 15,000-node budget |
+| ~~Flat view draws tens of thousands of edges~~ | — | Done (round 2); flat L still needs 5.4 s to open (React mounting 5,000 nodes) |
+| ~~Warm start XL 4 s before anything is shown~~ | — | Done (round 2): saved graph shown in 0.4 s |
+| ~~Cold scan XL on one thread~~ | — | Done (round 2): worker threads |
+| Rescan after reopening XL still takes ~4 s + 1.4 s diff (in the background) | Low | Persist the linker indexes too |
+| Intermittent "Collapse all" stall seen in the UI harness (S, flat) | To confirm | Investigate if it shows up in real use |
 | Opening/closing a container re-runs the full layout | Low (≤ 41 ms at L by folders) | Re-layout only the changed level |

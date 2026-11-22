@@ -11,10 +11,12 @@ import type {
   RelPath,
 } from '../shared';
 import {
+  EXPAND_ALL_NODE_BUDGET,
   getAllContainerIds,
   getIdsToReveal,
   getInitialCollapsedIds,
   getNextLevelToExpand,
+  planExpandAll,
   toggleId,
 } from './collapse';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
@@ -67,6 +69,9 @@ const CHANGE_HIGHLIGHT_MS = 1500;
 
 /** Quiet period before a search query is applied, in milliseconds. */
 const SEARCH_DEBOUNCE_MS = 150;
+
+/** How long a notice stays on screen, in milliseconds. */
+const NOTICE_MS = 6000;
 
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
@@ -170,6 +175,7 @@ function GraphViewContent({
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const [minimapPreference, setMinimapPreference] = useState<MinimapPreference>('auto');
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(DEFAULT_EDGE_FILTERS);
+  const [notice, setNotice] = useState<string | null>(null);
   // Decorators reuse unchanged node/edge objects so React Flow skips re-rendering them.
   const [nodeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowNode>());
   const [edgeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowEdge>());
@@ -311,9 +317,27 @@ function GraphViewContent({
   }, [current.nodes]);
 
   const expandAll = useCallback(() => {
+    const plan = planExpandAll(snapshot, folderTree, collapsedIds);
     pendingFitRef.current = { duration: VIEWPORT_ANIMATION_MS };
-    setCollapsedIds(new Set());
-  }, []);
+    setCollapsedIds(plan.collapsedIds);
+    setNotice(
+      plan.complete
+        ? null
+        : `Opened as much as fits in ${EXPAND_ALL_NODE_BUDGET.toLocaleString('en-US')} nodes. Open the remaining folders or files one by one.`,
+    );
+  }, [snapshot, folderTree, collapsedIds]);
+
+  useEffect(() => {
+    if (notice === null) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      setNotice(null);
+    }, NOTICE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [notice]);
 
   const collapseAll = useCallback(() => {
     pendingFitRef.current = { duration: VIEWPORT_ANIMATION_MS };
@@ -447,6 +471,11 @@ function GraphViewContent({
         </button>
       </StatusBar>
       <main className="cg-canvas">
+        {notice !== null && (
+          <div className="cg-notice" role="status">
+            {notice}
+          </div>
+        )}
         <GraphCanvas
           nodes={displayedNodes}
           edges={displayedEdges}

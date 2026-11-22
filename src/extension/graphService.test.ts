@@ -5,9 +5,11 @@ import { parseSource } from './analyzer/parser';
 import type { ParsedFile } from './analyzer/types';
 import type { CacheEntry, FileStamp } from './cache';
 import { AnalysisCache } from './cache';
-import type { CacheStore } from './cacheStore';
+import type { CacheStore, GraphStore } from './cacheStore';
+import type { ParseJob, ParsePool } from './parsePool';
+import type { GraphSnapshot as Snapshot } from '../shared';
 import type { ServiceLogger, WorkspaceReader } from './graphService';
-import { GraphService } from './graphService';
+import { GraphService, MIN_FILES_FOR_WORKERS } from './graphService';
 
 /** In-memory workspace used as the service's file source. */
 class InMemoryReader implements WorkspaceReader {
@@ -439,5 +441,172 @@ describe('GraphService cache reuse', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/** Graph store that keeps the graph in memory. */
+class MemoryGraphStore implements GraphStore {
+  public graph: Snapshot | null = null;
+
+  /**
+   * Returns the saved graph.
+   *
+   * @returns The graph, or `null`.
+   */
+  public load(): Promise<Snapshot | null> {
+    return Promise.resolve(this.graph);
+  }
+
+  /**
+   * Saves a graph.
+   *
+   * @param snapshot - Graph to save.
+   */
+  public save(snapshot: Snapshot): Promise<void> {
+    this.graph = snapshot;
+    return Promise.resolve();
+  }
+}
+
+describe('GraphService saved graph', () => {
+  it('shows the previous graph and patches it after the rescan', async () => {
+    const graphStore = new MemoryGraphStore();
+    const first = new GraphService(
+      new InMemoryReader(WORKSPACE),
+      new RecordingLogger(),
+      undefined,
+      {
+        graphStore,
+      },
+    );
+    await first.initialize();
+    await first.dispose();
+    expect(graphStore.graph?.version).toBe(1);
+
+    const reader = new InMemoryReader(WORKSPACE);
+    reader.files.set(
+      'src/b.ts',
+      'export function greet(): void {}\nexport function bye(): void {}',
+    );
+    const second = new GraphService(reader, new RecordingLogger(), undefined, { graphStore });
+    const saved = await second.loadSavedGraph();
+    expect(saved?.version).toBe(1);
+    expect(second.hasScanned).toBe(false);
+    expect(await second.loadSavedGraph()).toBeNull(); // only once
+
+    if (saved === null) {
+      throw new Error('Expected a saved graph.');
+    }
+    const { snapshot, patch } = await second.revalidate(saved);
+    expect(snapshot.version).toBe(2);
+    expect(second.hasScanned).toBe(true);
+    expect(patch?.version).toBe(2);
+    expect(patch?.upsertNodes.map((node) => node.id).sort()).toEqual(['src/b.ts', 'src/b.ts#bye']);
+  });
+
+  it('continues the numbering of the saved graph', async () => {
+    const graphStore = new MemoryGraphStore();
+    graphStore.graph = { version: 3, nodes: [], edges: [] };
+    const service = new GraphService(
+      new InMemoryReader(WORKSPACE),
+      new RecordingLogger(),
+      undefined,
+      {
+        graphStore,
+      },
+    );
+    const saved = await service.loadSavedGraph();
+    if (saved === null) {
+      throw new Error('Expected a saved graph.');
+    }
+    const { snapshot, patch } = await service.revalidate(saved);
+    expect(snapshot.version).toBe(4);
+    expect(patch?.version).toBe(4);
+    expect(patch?.upsertNodes).toHaveLength(4);
+  });
+
+  it('has nothing to show without a store', async () => {
+    const { service } = setup();
+    expect(await service.loadSavedGraph()).toBeNull();
+  });
+});
+
+/**
+ * Builds a workspace of many small files.
+ *
+ * @param count - Number of files.
+ * @returns File contents by path.
+ */
+function manyFiles(count: number): Record<string, string> {
+  return Object.fromEntries(
+    Array.from({ length: count }, (_, index) => [
+      `src/f${String(index)}.ts`,
+      `export function f${String(index)}(): void {}`,
+    ]),
+  );
+}
+
+describe('GraphService parallel parsing', () => {
+  it('parses large scans with the pool and disposes it', async () => {
+    const parsedJobs: ParseJob[] = [];
+    let disposed = false;
+    const pool: ParsePool = {
+      parseAll: (jobs) => {
+        parsedJobs.push(...jobs);
+        return Promise.resolve(jobs.map((job) => parseSource(job.filePath, job.content)));
+      },
+      dispose: () => {
+        disposed = true;
+        return Promise.resolve();
+      },
+    };
+    const service = new GraphService(
+      new InMemoryReader(manyFiles(MIN_FILES_FOR_WORKERS)),
+      new RecordingLogger(),
+      undefined,
+      {
+        createParsePool: () => pool,
+      },
+    );
+    const snapshot = await service.initialize();
+    expect(parsedJobs).toHaveLength(MIN_FILES_FOR_WORKERS);
+    expect(disposed).toBe(true);
+    expect(snapshot.nodes).toHaveLength(2 * MIN_FILES_FOR_WORKERS);
+  });
+
+  it('keeps small scans inline', async () => {
+    let created = false;
+    const service = new GraphService(
+      new InMemoryReader(WORKSPACE),
+      new RecordingLogger(),
+      undefined,
+      {
+        createParsePool: () => {
+          created = true;
+          return null;
+        },
+      },
+    );
+    await service.initialize();
+    expect(created).toBe(false);
+  });
+
+  it('falls back to inline parsing when the pool fails', async () => {
+    const logger = new RecordingLogger();
+    const pool: ParsePool = {
+      parseAll: () => Promise.reject(new Error('worker crashed')),
+      dispose: () => Promise.resolve(),
+    };
+    const service = new GraphService(
+      new InMemoryReader(manyFiles(MIN_FILES_FOR_WORKERS)),
+      logger,
+      undefined,
+      {
+        createParsePool: () => pool,
+      },
+    );
+    const snapshot = await service.initialize();
+    expect(snapshot.nodes).toHaveLength(2 * MIN_FILES_FOR_WORKERS);
+    expect(logger.messages.some((m) => m.message.includes('worker crashed'))).toBe(true);
   });
 });

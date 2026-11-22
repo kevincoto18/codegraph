@@ -8,6 +8,7 @@ import {
   getInitialCollapsedFileIds,
   getInitialCollapsedIds,
   getNextLevelToExpand,
+  planExpandAll,
   routeEdges,
   toggleId,
 } from './collapse';
@@ -189,5 +190,28 @@ describe('folder collapse helpers', () => {
     expect(getNextLevelToExpand([folder, file('top.ts', 1)])).toEqual(['folder:src']);
     expect(getNextLevelToExpand([file('a.ts', 2), file('empty.ts', 0)])).toEqual(['a.ts']);
     expect(getNextLevelToExpand([])).toEqual([]);
+  });
+});
+
+describe('planExpandAll', () => {
+  const tree = buildFolderTree(NESTED.nodes);
+  const allCollapsed = getAllContainerIds(NESTED, tree);
+
+  it('opens everything when it fits', () => {
+    const plan = planExpandAll(NESTED, tree, allCollapsed, 100);
+    expect(plan).toEqual({ collapsedIds: new Set(), complete: true });
+  });
+
+  it('opens folders before files and stops at the budget', () => {
+    // Visible: src + top.ts (2). Opening src adds app.ts + lib (4), lib adds db.ts (5).
+    const plan = planExpandAll(NESTED, tree, allCollapsed, 5);
+    expect(plan.complete).toBe(false);
+    expect(plan.collapsedIds).toEqual(new Set(['src/app.ts', 'src/lib/db.ts']));
+  });
+
+  it('works without folder view', () => {
+    const plan = planExpandAll(NESTED, null, getAllFileIds(NESTED), 4);
+    // 3 files visible; opening app.ts adds 1 function (4), db.ts would exceed.
+    expect(plan).toEqual({ collapsedIds: new Set(['src/lib/db.ts']), complete: false });
   });
 });
