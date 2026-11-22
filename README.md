@@ -16,7 +16,7 @@
 | Feature           | Details                                                                                                                                                                              |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Static analysis   | TypeScript Compiler API (`ts.createSourceFile`), no type checker, no LLM                                                                                                             |
-| Languages         | `.ts`, `.tsx`, `.js`, `.jsx` (`.d.ts` skipped); `node_modules`, `dist`, `build`, `.git`, `files.exclude` and `.gitignore`d files ignored                                             |
+| Languages         | TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`; `.d.ts` skipped) and Python (`.py`); `node_modules`, `dist`, `build`, `.git`, `files.exclude` and `.gitignore`d files ignored   |
 | Imports           | ES default / named (aliased) / namespace / side-effect, re-exports, `require`, `import x = require()`                                                                                |
 | Functions         | Declarations, arrow & function expressions assigned to variables, class methods, constructors, arrow class properties, anonymous default exports, CommonJS exported functions        |
 | Calls             | `foo()`, `ns.foo()`, `this.foo()`, `Class.staticMethod()` — local or imported (ES and CommonJS)                                                                                      |
@@ -165,10 +165,14 @@ and asserts the complete expected graph.
 
 ## Languages
 
-TypeScript and JavaScript are supported today. Every language plugs in
-through the same `LanguageAnalyzer` contract; see
+| Language                | Parser                  | Files                                                       | Imports resolved                                                                                                                   |
+| ----------------------- | ----------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript / JavaScript | TypeScript Compiler API | `.ts` `.tsx` `.js` `.jsx` (not `.d.ts`)                     | Relative paths, `index` files, `.js` → `.ts`                                                                                       |
+| Python                  | Tree-sitter (WASM)      | `.py` (not `__pycache__`, `venv`, `.venv`, `site-packages`) | Relative (`.`, `..`), absolute from the root, `src/` or the importer's folders, packages (`__init__.py`), `from pkg import module` |
+
+Every language plugs in through the same `LanguageAnalyzer` contract; see
 [docs/adding-a-language.md](docs/adding-a-language.md) for the design and the
-rollout plan (Python, Java, C#, Go next).
+rollout plan (Java, C#, Go next). `samples/python-demo` is the Python sample.
 
 ## Known limitations
 

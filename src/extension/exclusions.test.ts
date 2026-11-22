@@ -7,12 +7,14 @@ describe('buildExcludeGlob', () => {
     expect(
       buildExcludeGlob({ '**/generated': true, '**/*.snap': true, '**/off': false, '**/x': {} }),
     ).toBe(
-      '{**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/generated,**/generated/**,**/*.snap,**/*.snap/**}',
+      '{**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/__pycache__/**,**/.venv/**,**/venv/**,**/.tox/**,**/site-packages/**,**/generated,**/generated/**,**/*.snap,**/*.snap/**}',
     );
   });
 
   it('uses only built-in directories without settings', () => {
-    expect(buildExcludeGlob()).toBe('{**/node_modules/**,**/dist/**,**/build/**,**/.git/**}');
+    expect(buildExcludeGlob()).toBe(
+      '{**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/__pycache__/**,**/.venv/**,**/venv/**,**/.tox/**,**/site-packages/**}',
+    );
   });
 });
 

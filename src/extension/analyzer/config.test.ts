@@ -28,6 +28,6 @@ describe('isAnalyzableFile', () => {
 
 describe('globs', () => {
   it('builds the findFiles include pattern', () => {
-    expect(SOURCE_GLOB).toBe('**/*.{ts,tsx,js,jsx}');
+    expect(SOURCE_GLOB).toBe('**/*.{ts,tsx,js,jsx,py}');
   });
 });

@@ -308,6 +308,8 @@ export class GraphService {
 
       await tracker.measureAsync('scan.cacheLoad', () => this.loadPersistedCache());
       const filePaths = await tracker.measureAsync('scan.list', () => this.listAnalyzableFiles());
+      // Load only the parsers this workspace needs (e.g. a Tree-sitter grammar).
+      await tracker.measureAsync('scan.prepare', () => this.languages.prepare(filePaths));
       this.cache.setMetricPrefix('scan');
       const stamps = await tracker.measureAsync('scan.stat', () => this.statFiles(filePaths));
       const toRead = filePaths.filter(
@@ -458,6 +460,7 @@ export class GraphService {
     const startedAt = performance.now();
     const updates = batch.filter(([, kind]) => kind === 'update').map(([filePath]) => filePath);
     const removals = batch.filter(([, kind]) => kind === 'remove').map(([filePath]) => filePath);
+    await this.languages.prepare(updates);
     const prefix = updates.length > 0 ? 'update' : 'remove';
     this.cache.setMetricPrefix(prefix);
 

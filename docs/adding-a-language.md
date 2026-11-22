@@ -66,11 +66,33 @@ bundle and the worker threads.
 | Precision    | Syntactic, like the current TypeScript parser                                                 | Can be semantic (types, `obj.method()`)                                                                                     |
 | Coverage     | Any language with a grammar (hundreds)                                                        | Any language with an extension                                                                                              |
 
-**Plan:** a single generic `TreeSitterAnalyzer` configured per language
-(grammar + `queries.scm` + a small import resolver), so most languages need no
-new parsing code. TypeScript/JavaScript keep the TypeScript Compiler API,
-which understands them better (CommonJS, re-exports, `import x = require()`).
-LSP can later complement any language for semantic call resolution.
+**How Tree-sitter languages are built** (Python is the reference):
+
+- [`treeSitter.ts`](../src/extension/analyzer/treeSitter.ts) loads the WASM
+  engine and grammars once, from `dist/grammars` (copied by `esbuild.mjs` from
+  `@vscode/tree-sitter-wasm`, the builds VS Code uses) or from `node_modules`
+  when running from sources.
+- The analyzer's `prepare()` loads its grammar. The registry only prepares the
+  languages present in the workspace, so a TypeScript project never loads
+  Tree-sitter; the parser workers prepare themselves the same way.
+- Each language has its own **extractor** that walks the top level of the
+  syntax tree (imports, functions, classes) and uses a **query** run inside
+  the WASM engine (`(call) @call`) to collect calls, assigning each call to
+  the function whose range contains it. This is simpler and more precise than
+  expressing everything as `.scm` queries (qualified names, nesting).
+- Syntax trees live in WASM memory: always `tree.delete()` after extracting.
+
+To add a Tree-sitter language: add its `.wasm` to `GRAMMAR_FILES` in
+`esbuild.mjs`, write `<language>Language.ts` (definition + import resolution)
+and `<language>Parser.ts` (prepare + extractor), and register both.
+
+TypeScript/JavaScript keep the TypeScript Compiler API, which understands
+them better (CommonJS, re-exports, `import x = require()`). LSP can later
+complement any language for semantic call resolution.
+
+**Performance note:** Tree-sitter in WASM parses ~0.6 ms per 50-line Python
+file (2,000 files: ~1.3 s parse, ~2.2 s parse + extraction, 3 s full scan);
+large scans use the worker threads.
 
 ## What stays language-specific
 

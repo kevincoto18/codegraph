@@ -94,9 +94,10 @@ const silent = {
 
 describe('LanguageRegistry', () => {
   it('describes the built-in languages', () => {
-    expect(LANGUAGES.extensions).toEqual(['.ts', '.tsx', '.js', '.jsx']);
-    expect(LANGUAGES.sourceGlob).toBe('**/*.{ts,tsx,js,jsx}');
-    expect(LANGUAGES.versionKey).toBe('typescript1');
+    expect(LANGUAGES.extensions).toEqual(['.ts', '.tsx', '.js', '.jsx', '.py']);
+    expect(LANGUAGES.sourceGlob).toBe('**/*.{ts,tsx,js,jsx,py}');
+    expect(LANGUAGES.versionKey).toBe('typescript1+python1');
+    expect(LANGUAGES.forFile('app/main.py')?.id).toBe('python');
     expect(LANGUAGES.forFile('src/a.tsx')?.id).toBe('typescript');
     expect(LANGUAGES.forFile('README.md')).toBeUndefined();
     expect(LANGUAGES.forFile('Makefile')).toBeUndefined();
@@ -106,7 +107,10 @@ describe('LanguageRegistry', () => {
     expect(LANGUAGES.isAnalyzableFile('src/a.ts')).toBe(true);
     expect(LANGUAGES.isAnalyzableFile('src/a.d.ts')).toBe(false);
     expect(LANGUAGES.isAnalyzableFile('node_modules/x/a.js')).toBe(false);
-    expect(LANGUAGES.isAnalyzableFile('src/a.py')).toBe(false);
+    expect(LANGUAGES.isAnalyzableFile('src/a.py')).toBe(true);
+    expect(LANGUAGES.isAnalyzableFile('app/__pycache__/a.py')).toBe(false);
+    expect(LANGUAGES.isAnalyzableFile('.venv/lib/a.py')).toBe(false);
+    expect(LANGUAGES.isAnalyzableFile('src/a.rb')).toBe(false);
   });
 
   it('resolves imports with the rules of the importing language', () => {

@@ -7,6 +7,34 @@
  *   --production  Minify and drop source maps.
  */
 import * as esbuild from 'esbuild';
+import { existsSync } from 'node:fs';
+import { copyFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+
+/** Tree-sitter engine and grammars copied next to the analyzer bundles. */
+const GRAMMAR_FILES = ['tree-sitter.wasm', 'tree-sitter-python.wasm'];
+
+/** Folder of the prebuilt grammars in `@vscode/tree-sitter-wasm`. */
+const GRAMMAR_SOURCE = join('node_modules', '@vscode', 'tree-sitter-wasm', 'wasm');
+
+/**
+ * Copies the Tree-sitter `.wasm` files to `dist/grammars`.
+ * @returns {Promise<void>}
+ */
+async function copyGrammars() {
+  const missing = GRAMMAR_FILES.filter((file) => !existsSync(join(GRAMMAR_SOURCE, file)));
+  if (missing.length > 0) {
+    throw new Error(
+      `Tree-sitter grammars not found (${missing.join(', ')}) in ${GRAMMAR_SOURCE}. Run "npm install" to install @vscode/tree-sitter-wasm.`,
+    );
+  }
+  await mkdir(join('dist', 'grammars'), { recursive: true });
+  await Promise.all(
+    GRAMMAR_FILES.map((file) =>
+      copyFile(join(GRAMMAR_SOURCE, file), join('dist', 'grammars', file)),
+    ),
+  );
+}
 
 const isWatch = process.argv.includes('--watch');
 const isProduction = process.argv.includes('--production');
@@ -78,11 +106,12 @@ const builds = [
  */
 async function main() {
   if (isWatch) {
+    await copyGrammars();
     const contexts = await Promise.all(builds.map((options) => esbuild.context(options)));
     await Promise.all(contexts.map((context) => context.watch()));
     return;
   }
-  await Promise.all(builds.map((options) => esbuild.build(options)));
+  await Promise.all([...builds.map((options) => esbuild.build(options)), copyGrammars()]);
 }
 
 main().catch((error) => {

@@ -162,6 +162,10 @@ body {
   background: var(--vscode-charts-yellow, #cca700);
 }
 
+.cg-file__badge--py {
+  background: var(--vscode-charts-green, #89d185);
+}
+
 .cg-file__name {
   font-weight: 600;
   white-space: nowrap;

@@ -10,7 +10,17 @@ import type { RelPath } from '../../shared';
 import type { ParsedFile } from './types';
 
 /** Directory names that are never analyzed, at any depth and for any language. */
-export const EXCLUDED_DIRECTORIES: readonly string[] = ['node_modules', 'dist', 'build', '.git'];
+export const EXCLUDED_DIRECTORIES: readonly string[] = [
+  'node_modules',
+  'dist',
+  'build',
+  '.git',
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.tox',
+  'site-packages',
+];
 
 /**
  * Cheap description of a language: which files it handles and how its
@@ -49,6 +59,13 @@ export interface LanguageDefinition {
 
 /** A language definition plus its parser. */
 export interface LanguageAnalyzer extends LanguageDefinition {
+  /**
+   * Optionally loads what `parse` needs (e.g. a Tree-sitter grammar). Called
+   * once before the first file of the language is parsed; must be idempotent.
+   *
+   * @returns Resolves when `parse` can be called.
+   */
+  prepare?(): Promise<void>;
   /**
    * Parses one file into the neutral model.
    *
@@ -174,6 +191,37 @@ export class LanguageRegistry<T extends LanguageDefinition = LanguageDefinition>
 
 /** Registry of languages with their parsers. */
 export class AnalyzerRegistry extends LanguageRegistry<LanguageAnalyzer> {
+  private readonly prepared = new Map<string, Promise<void>>();
+
+  /**
+   * Prepares the analyzers of the languages present in a set of files, so
+   * projects never load parsers they do not need.
+   *
+   * @param filePaths - Files about to be parsed.
+   * @returns Resolves when every needed analyzer can parse.
+   */
+  public async prepare(filePaths: Iterable<RelPath>): Promise<void> {
+    const needed = new Set<LanguageAnalyzer>();
+    for (const filePath of filePaths) {
+      const analyzer = this.forFile(filePath);
+      if (analyzer?.prepare !== undefined) {
+        needed.add(analyzer);
+      }
+    }
+    await Promise.all(
+      [...needed].map((analyzer) => {
+        let preparing = this.prepared.get(analyzer.id);
+        if (preparing === undefined) {
+          preparing = analyzer.prepare?.() ?? Promise.resolve();
+          // A failed preparation is retried on the next call.
+          preparing.catch(() => this.prepared.delete(analyzer.id));
+          this.prepared.set(analyzer.id, preparing);
+        }
+        return preparing;
+      }),
+    );
+  }
+
   /**
    * Parses a file with the analyzer of its language.
    *

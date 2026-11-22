@@ -4,13 +4,16 @@
  */
 import { parentPort } from 'node:worker_threads';
 
-import { parseFile } from './analyzer/analyzers';
+import { ANALYZERS, parseFile } from './analyzer/analyzers';
 import type { ParseRequest, ParseResponse } from './parsePool';
 
 parentPort?.on('message', (request: ParseRequest) => {
-  const response: ParseResponse = {
-    id: request.id,
-    results: request.jobs.map((job) => parseFile(job.filePath, job.content)),
-  };
-  parentPort?.postMessage(response);
+  // Each worker loads the parsers of the languages it is asked to parse.
+  void ANALYZERS.prepare(request.jobs.map((job) => job.filePath)).then(() => {
+    const response: ParseResponse = {
+      id: request.id,
+      results: request.jobs.map((job) => parseFile(job.filePath, job.content)),
+    };
+    parentPort?.postMessage(response);
+  });
 });
