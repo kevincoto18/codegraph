@@ -31,11 +31,13 @@ import { shouldShowMinimap } from './canvasOptions';
 import { ClassNameDecorator, joinClassNames } from './decorate';
 import type { EdgeFilters } from './edgeFilters';
 import { DEFAULT_EDGE_FILTERS, filterEdges } from './edgeFilters';
-import { SearchBox } from './SearchBox';
 import type { FolderTree } from './folders';
 import { buildFolderTree, isFolderViewEnabled } from './folders';
 import { matchNodes, searchClassOfEdge, searchClassOfNode, withFolderContext } from './search';
+import { Legend } from './Legend';
+import { SettingsPanel } from './SettingsPanel';
 import { StatusBar } from './StatusBar';
+import { listFolderColors } from './folderColors';
 import type { ViewLayoutInputs, ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
@@ -176,6 +178,7 @@ function GraphViewContent({
   const [minimapPreference, setMinimapPreference] = useState<MinimapPreference>('auto');
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(DEFAULT_EDGE_FILTERS);
   const [notice, setNotice] = useState<string | null>(null);
+  const [folderColorsEnabled, setFolderColorsEnabled] = useState(true);
   // Decorators reuse unchanged node/edge objects so React Flow skips re-rendering them.
   const [nodeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowNode>());
   const [edgeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowEdge>());
@@ -224,6 +227,13 @@ function GraphViewContent({
   );
   const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
   const summary = useMemo(() => summarizeGraph(snapshot), [snapshot]);
+  const folderColorEntries = useMemo(
+    () =>
+      listFolderColors(
+        snapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+      ),
+    [snapshot],
+  );
 
   // Report each recomputed layout once (dragging nodes does not recompute it).
   useEffect(() => {
@@ -381,11 +391,35 @@ function GraphViewContent({
     setEdgeFilters((filters) => ({ ...filters, [key]: !filters[key] }));
   }, []);
 
+  const toggleFolderColors = useCallback(() => {
+    setFolderColorsEnabled((enabled) => !enabled);
+  }, []);
+
   const toggleMinimap = useCallback(() => {
     setMinimapPreference(showMinimap ? 'off' : 'on');
   }, [showMinimap]);
 
   const actions = useMemo<GraphActions>(() => ({ toggle }), [toggle]);
+
+  const panel = (
+    <SettingsPanel
+      query={query}
+      matchCount={search === null ? null : search.matchedIds.size}
+      onQueryChange={setQuery}
+      onSearchSubmit={zoomToMatches}
+      edgeFilters={edgeFilters}
+      onToggleEdgeFilter={toggleEdgeFilter}
+      onExpandLevel={expandLevel}
+      onExpandAll={expandAll}
+      onCollapseAll={collapseAll}
+      onRelayout={relayout}
+      minimapShown={showMinimap}
+      onToggleMinimap={toggleMinimap}
+      folderColorsEnabled={folderColorsEnabled}
+      onToggleFolderColors={toggleFolderColors}
+      folderColors={folderColorEntries}
+    />
+  );
 
   return (
     <GraphActionsContext value={actions}>
@@ -395,80 +429,7 @@ function GraphViewContent({
         summary={summary}
         onRefresh={onRefresh}
       >
-        <SearchBox
-          value={query}
-          matchCount={search === null ? null : search.matchedIds.size}
-          onChange={setQuery}
-          onSubmit={zoomToMatches}
-        />
-        <button
-          type="button"
-          className="cg-toolbar__button"
-          onClick={expandLevel}
-          title="Open the next level: collapsed folders, or files when no folder is collapsed"
-        >
-          Expand level
-        </button>
-        <button type="button" className="cg-toolbar__button" onClick={expandAll}>
-          Expand all
-        </button>
-        <button type="button" className="cg-toolbar__button" onClick={collapseAll}>
-          Collapse all
-        </button>
-        <button
-          type="button"
-          className="cg-toolbar__button"
-          onClick={relayout}
-          title="Recompute the layout of every file"
-        >
-          Re-layout
-        </button>
-        <div className="cg-toolbar__group" role="group" aria-label="Connections to show">
-          Show:
-          <button
-            type="button"
-            className="cg-toolbar__button"
-            aria-pressed={edgeFilters.imports}
-            onClick={() => {
-              toggleEdgeFilter('imports');
-            }}
-            title="Imports between files (dashed purple lines)"
-          >
-            Imports
-          </button>
-          <button
-            type="button"
-            className="cg-toolbar__button"
-            aria-pressed={edgeFilters.calls}
-            onClick={() => {
-              toggleEdgeFilter('calls');
-            }}
-            title="Calls between functions (solid blue lines)"
-          >
-            Calls
-          </button>
-          <button
-            type="button"
-            className="cg-toolbar__button"
-            aria-pressed={edgeFilters.calls && edgeFilters.internalCalls}
-            disabled={!edgeFilters.calls}
-            onClick={() => {
-              toggleEdgeFilter('internalCalls');
-            }}
-            title="Calls between functions of the same file"
-          >
-            Internal calls
-          </button>
-        </div>
-        <button
-          type="button"
-          className="cg-toolbar__button"
-          onClick={toggleMinimap}
-          aria-pressed={showMinimap}
-          title="Show or hide the minimap (hidden automatically on large graphs)"
-        >
-          Minimap
-        </button>
+        <Legend />
       </StatusBar>
       <main className="cg-canvas">
         {notice !== null && (
@@ -482,6 +443,8 @@ function GraphViewContent({
           onNodesChange={onNodesChange}
           onNodeClick={handleNodeClick}
           showMinimap={showMinimap}
+          folderColors={folderColorsEnabled}
+          panel={panel}
         />
       </main>
     </GraphActionsContext>

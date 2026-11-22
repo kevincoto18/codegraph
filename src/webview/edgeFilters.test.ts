@@ -40,8 +40,8 @@ const TO_FILE = edge('call', 'a#x', 'b'); // call into a collapsed file
 const EDGES = [IMPORT, INTERNAL, EXTERNAL, TO_FILE];
 
 describe('filterEdges', () => {
-  it('hides calls inside a file by default', () => {
-    expect(filterEdges(EDGES, NODES, DEFAULT_EDGE_FILTERS)).toEqual([IMPORT, EXTERNAL, TO_FILE]);
+  it('shows only calls between files by default', () => {
+    expect(filterEdges(EDGES, NODES, DEFAULT_EDGE_FILTERS)).toEqual([EXTERNAL, TO_FILE]);
   });
 
   it('returns the same array when everything is shown', () => {

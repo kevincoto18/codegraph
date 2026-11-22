@@ -11,6 +11,7 @@ import {
   getFileNodeHeight,
   toFlowElements,
 } from './toFlowElements';
+import { assignFolderColors } from './folderColors';
 import { buildFolderTree } from './folders';
 
 /** Two files: `a.ts` (2 functions) calls into `b.ts` (1 function). */
@@ -119,6 +120,7 @@ describe('toFlowElements', () => {
       position: { x: 0, y: 0 },
       width: FILE_NODE_WIDTH,
       height: getFileNodeHeight(2),
+      style: { '--cg-folder-color': assignFolderColors(['src/a.ts', 'src/b.ts']).get('src') },
       data: { label: 'a.ts', filePath: 'src/a.ts', line: 1, functionCount: 2, collapsed: false },
     });
   });

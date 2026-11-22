@@ -464,48 +464,6 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
-/* ---------- Legend ---------- */
-
-.cg-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid var(--vscode-panel-border, #8886);
-  border-radius: 4px;
-  background: var(--vscode-editorWidget-background);
-  font-size: 11px;
-  color: var(--vscode-descriptionForeground);
-}
-
-.cg-legend__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cg-legend__line {
-  width: 28px;
-  height: 8px;
-}
-
-.cg-legend__import {
-  stroke: var(--vscode-charts-purple, #b180d7);
-  stroke-width: 2;
-  stroke-dasharray: 6 4;
-}
-
-.cg-legend__call {
-  stroke: var(--vscode-charts-blue, #3794ff);
-  stroke-width: 2;
-}
-
-.cg-legend__count {
-  width: 28px;
-  text-align: center;
-  color: var(--vscode-foreground);
-}
-
 /* ---------- Notice ---------- */
 
 .cg-notice {
@@ -524,6 +482,211 @@ body {
   pointer-events: none;
 }
 
-.cg-legend__hint {
+/* ---------- Legend (toolbar) ---------- */
+
+.cg-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.cg-legend__line {
+  width: 24px;
+  height: 8px;
+}
+
+.cg-legend__import {
+  stroke: var(--vscode-charts-purple, #b180d7);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.cg-legend__call {
+  stroke: var(--vscode-charts-blue, #3794ff);
+  stroke-width: 2;
+}
+
+.cg-legend__count {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+/* ---------- Settings panel ---------- */
+
+.cg-panel {
+  width: 280px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  border: 1px solid var(--vscode-panel-border, #8886);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, #0006);
+  font-size: 12px;
+}
+
+.cg-panel--minimized {
+  width: auto;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cg-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, #8886);
+}
+
+.cg-panel__title {
+  font-weight: 600;
+}
+
+.cg-panel__minimize {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+}
+
+.cg-panel__minimize:hover,
+.cg-panel__section-header:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.cg-panel__section + .cg-panel__section {
+  border-top: 1px solid var(--vscode-panel-border, #8886);
+}
+
+.cg-panel__section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cg-panel__section-body {
+  padding: 2px 10px 10px;
+}
+
+.cg-panel__section-body .cg-search {
+  flex-wrap: wrap;
+}
+
+.cg-panel__section-body .cg-search__input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cg-panel__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cg-panel__folders {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cg-panel__folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.cg-panel__swatch {
+  flex: none;
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.cg-panel__folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.cg-panel__folder-count,
+.cg-panel__more {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-hint {
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
   color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 12px;
+}
+
+/* ---------- Folder color stripe ---------- */
+
+.cg-file,
+.cg-folder {
+  position: relative;
+}
+
+.cg-colors .cg-file::before,
+.cg-colors .cg-folder::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--cg-folder-color, transparent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.cg-colors .cg-file::before {
+  top: 6px;
+  bottom: 6px;
+}
+
+/* Folders: only along the header, so the stripe does not run down the content. */
+.cg-colors .cg-folder::before {
+  top: 8px;
+  height: 24px;
+}
+
+.cg-colors .cg-file__header,
+.cg-colors .cg-folder__header {
+  padding-left: 14px;
+}
+
+/* Minimap: folders as outlines so they do not hide their files. */
+.react-flow__minimap-node.cg-minimap-folder {
+  fill: transparent;
+  stroke: var(--vscode-editorLineNumber-foreground, #8888);
+  stroke-width: 8;
 }

@@ -54,19 +54,17 @@ from the Command Palette (`Ctrl+Shift+P`).
 
 ## Usage
 
-| Action                       | How                                                                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Open the graph               | `CodeGraph: Open Graph`                                                                                                   |
-| Go to code                   | Click a function or a file header                                                                                         |
-| Collapse / expand a file     | `▸` / `▾` button in the file header                                                                                       |
-| Open / close a folder        | Click the folder (or its `▸` / `▾` button)                                                                                |
-| Go one level deeper          | **Expand level** (collapsed folders first, then files)                                                                    |
-| Collapse / expand everything | **Collapse all** / **Expand all**                                                                                         |
-| Search                       | Type in the search box · **Enter** opens the folders/files hiding the matches and zooms to them · **Escape** clears       |
-| Choose connections           | **Show: Imports · Calls · Internal calls** (calls inside a file are hidden by default); a legend explains the line styles |
-| Tidy the layout              | **Re-layout** (recomputes positions, e.g. after many live changes)                                                        |
-| Full rescan                  | **Refresh**                                                                                                               |
-| Zoom / pan / move files      | Mouse wheel · drag the background · drag a file header                                                                    |
+| Action                   | How                                                                                                                                                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open the graph           | `CodeGraph: Open Graph`                                                                                                                                                                                                                                                             |
+| Go to code               | Click a function or a file header                                                                                                                                                                                                                                                   |
+| Collapse / expand a file | `▸` / `▾` button in the file header                                                                                                                                                                                                                                                 |
+| Open / close a folder    | Click the folder (or its `▸` / `▾` button)                                                                                                                                                                                                                                          |
+| Settings & filters       | Floating panel (top left, minimizable) with collapsible sections: **Search**, **Connections** (Imports · Calls · Internal calls; only Calls by default), **View** (Expand level · Expand all · Collapse all · Re-layout · Minimap) and **Folders** (folder colors and their legend) |
+| Search                   | **Enter** opens the folders/files hiding the matches and zooms to them · **Escape** clears                                                                                                                                                                                          |
+| Folder colors            | A thin stripe on each file and folder, one stable color per folder                                                                                                                                                                                                                  |
+| Full rescan              | **Refresh**                                                                                                                                                                                                                                                                         |
+| Zoom / pan / move files  | Mouse wheel · drag the background · drag a file header                                                                                                                                                                                                                              |
 
 Logs are written to the **CodeGraph** output channel (`Ctrl+Shift+U`).
 

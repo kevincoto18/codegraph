@@ -13,9 +13,9 @@ export interface EdgeFilters {
   readonly internalCalls: boolean;
 }
 
-/** Initial filters: everything except calls inside a file, which are mostly noise. */
+/** Initial filters: calls between files only (imports and calls inside a file are opt-in). */
 export const DEFAULT_EDGE_FILTERS: EdgeFilters = {
-  imports: true,
+  imports: false,
   calls: true,
   internalCalls: false,
 };

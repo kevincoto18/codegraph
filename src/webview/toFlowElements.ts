@@ -2,6 +2,7 @@
  * Converts the shared graph model into React Flow elements.
  */
 import { MarkerType } from '@xyflow/react';
+import type { CSSProperties } from 'react';
 
 import type { FileGraphNode, FunctionGraphNode, GraphSnapshot } from '../shared';
 import type { RoutedEdge } from './collapse';
@@ -14,6 +15,7 @@ import type {
   FolderFlowNode,
   FunctionFlowNode,
 } from './flowTypes';
+import { FOLDER_COLOR_PROPERTY, assignFolderColors, directFolderOf } from './folderColors';
 import type { FolderInfo, FolderTree } from './folders';
 
 /** Width of a file container, in pixels. */
@@ -39,6 +41,17 @@ export const FOLDER_PADDING = 20;
 
 /** Shared empty set used when nothing is collapsed. */
 const NO_COLLAPSED_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * Builds the node style carrying a folder color (used by the CSS stripe when
+ * folder colors are enabled).
+ *
+ * @param color - Folder color, or `undefined` for the root.
+ * @returns The style, or nothing without color.
+ */
+function folderColorStyle(color: string | undefined): { style?: CSSProperties } {
+  return color === undefined ? {} : { style: { [FOLDER_COLOR_PROPERTY]: color } as CSSProperties };
+}
 
 /**
  * Computes the height of an expanded file container from its number of functions.
@@ -81,6 +94,7 @@ export function toFlowElements(
     }
   }
 
+  const colors = assignFolderColors([...filesById.values()].map((file) => file.filePath));
   const nodes: CodeGraphFlowNode[] = [];
   /** Visible node standing for each model node id. */
   const visibleIdByNodeId = new Map<string, string>();
@@ -106,7 +120,15 @@ export function toFlowElements(
       return;
     }
     const collapsed = collapsedIds.has(file.id);
-    nodes.push(createFileFlowNode(file, functions.length, collapsed, parentId));
+    nodes.push(
+      createFileFlowNode(
+        file,
+        functions.length,
+        collapsed,
+        parentId,
+        colors.get(directFolderOf(file.filePath)),
+      ),
+    );
     visibleIdByNodeId.set(file.id, file.id);
     functions.forEach((fn, index) => {
       visibleIdByNodeId.set(fn.id, collapsed ? file.id : fn.id);
@@ -127,7 +149,7 @@ export function toFlowElements(
     let contentHiddenBy = hiddenBy;
     if (hiddenBy === undefined) {
       const collapsed = collapsedIds.has(folder.id);
-      nodes.push(createFolderFlowNode(folder, collapsed));
+      nodes.push(createFolderFlowNode(folder, collapsed, colors.get(folder.path)));
       contentHiddenBy = collapsed ? folder.id : undefined;
     }
     for (const childId of folder.folderIds) {
@@ -173,9 +195,14 @@ export function toFlowElements(
  *
  * @param folder - Folder of the hierarchy.
  * @param collapsed - Whether the content is hidden.
+ * @param color - Folder color, if any.
  * @returns The folder container node, at the origin.
  */
-function createFolderFlowNode(folder: FolderInfo, collapsed: boolean): FolderFlowNode {
+function createFolderFlowNode(
+  folder: FolderInfo,
+  collapsed: boolean,
+  color: string | undefined,
+): FolderFlowNode {
   return {
     id: folder.id,
     type: 'folder',
@@ -183,6 +210,7 @@ function createFolderFlowNode(folder: FolderInfo, collapsed: boolean): FolderFlo
     width: FILE_NODE_WIDTH,
     height: FOLDER_HEADER_HEIGHT,
     ...(folder.parentId === null ? {} : { parentId: folder.parentId, extent: 'parent' as const }),
+    ...folderColorStyle(color),
     data: { label: folder.label, path: folder.path, fileCount: folder.fileCount, collapsed },
   };
 }
@@ -194,6 +222,7 @@ function createFolderFlowNode(folder: FolderInfo, collapsed: boolean): FolderFlo
  * @param functionCount - Number of functions declared in the file.
  * @param collapsed - Whether the functions are hidden.
  * @param parentId - Folder that contains the file, if any.
+ * @param color - Color of the file's folder, if any.
  * @returns The file container node, at the origin.
  */
 function createFileFlowNode(
@@ -201,6 +230,7 @@ function createFileFlowNode(
   functionCount: number,
   collapsed: boolean,
   parentId: string | undefined,
+  color: string | undefined,
 ): FileFlowNode {
   return {
     id: file.id,
@@ -209,6 +239,7 @@ function createFileFlowNode(
     width: FILE_NODE_WIDTH,
     height: collapsed ? FILE_HEADER_HEIGHT : getFileNodeHeight(functionCount),
     ...(parentId === undefined ? {} : { parentId, extent: 'parent' as const }),
+    ...folderColorStyle(color),
     data: { label: file.label, filePath: file.filePath, line: file.line, functionCount, collapsed },
   };
 }
