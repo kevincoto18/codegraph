@@ -7,8 +7,16 @@ import type { GraphEdge, GraphNode, GraphSnapshot, NodeFilters, RelPath } from '
 /** Folder names whose files are always tests. */
 const TEST_FOLDERS: ReadonlySet<string> = new Set(['__tests__', '__mocks__', 'test', 'tests']);
 
-/** File names of tests: `*.test.ts`, `*.spec.js`, `test_x.py`, `x_test.py`, `conftest.py`. */
-const TEST_FILE_PATTERN = /(\.(test|spec)\.[^./]+|^test_[^/]*\.py|_test\.py|^conftest\.py)$/i;
+/**
+ * File names of tests: `*.test.ts`, `*.spec.js`, `test_x.py`, `x_test.py`,
+ * `conftest.py`, `x_test.go`, `UserTest.java` / `UserTests.java` / `UserIT.java`,
+ * `UserTests.cs` / `UserTest.cs`.
+ */
+const TEST_FILE_PATTERN =
+  /(\.(test|spec)\.[^./]+|^test_[^/]*\.py|_test\.(py|go)|^conftest\.py|(Test|Tests|IT)\.java|Tests?\.cs)$/;
+
+/** Folder of a C# test project (`MyApp.Tests`, `MyApp.UnitTests`). */
+const CSHARP_TEST_PROJECT = /\.\w*Tests$/;
 
 /** Result of {@link applyNodeFilters}. */
 export interface NodeFilterResult {
@@ -41,7 +49,10 @@ export interface FolderEntry {
 export function isTestFile(filePath: RelPath): boolean {
   const segments = filePath.split('/');
   const fileName = segments.pop() ?? '';
-  return TEST_FILE_PATTERN.test(fileName) || segments.some((segment) => TEST_FOLDERS.has(segment));
+  return (
+    TEST_FILE_PATTERN.test(fileName) ||
+    segments.some((segment) => TEST_FOLDERS.has(segment) || CSHARP_TEST_PROJECT.test(segment))
+  );
 }
 
 /**

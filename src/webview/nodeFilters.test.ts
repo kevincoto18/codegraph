@@ -91,16 +91,29 @@ describe('isTestFile', () => {
     'conftest.py',
     'src/__tests__/a.ts',
     'tests/helpers.py',
+    'internal/db/repo_test.go',
+    'src/main/java/com/app/UserServiceTest.java',
+    'src/main/java/com/app/UserServiceTests.java',
+    'src/main/java/com/app/UserServiceIT.java',
+    'App/UserServiceTests.cs',
+    'App.UnitTests/Helpers.cs',
+    'src/test/java/com/app/Fixtures.java',
   ])('detects %s', (path) => {
     expect(isTestFile(path)).toBe(true);
   });
 
-  it.each(['src/a.ts', 'src/testing.ts', 'src/latest.ts', 'app/contest.py'])(
-    'ignores %s',
-    (path) => {
-      expect(isTestFile(path)).toBe(false);
-    },
-  );
+  it.each([
+    'src/a.ts',
+    'src/testing.ts',
+    'src/latest.ts',
+    'app/contest.py',
+    'internal/db/repo.go',
+    'src/main/java/com/app/Contest.java',
+    'App/Latest.cs',
+    'src/main/java/com/app/Attestation.java',
+  ])('ignores %s', (path) => {
+    expect(isTestFile(path)).toBe(false);
+  });
 });
 
 describe('compileExcludePattern', () => {

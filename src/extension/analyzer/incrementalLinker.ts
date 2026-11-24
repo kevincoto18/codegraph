@@ -20,6 +20,7 @@ import {
 } from './linker';
 import type { LanguageRegistry } from './language';
 import { LANGUAGES } from './languages';
+import { SymbolTable, namespaceKey, namespaceSetKey, namespacesOf } from './symbols';
 import type { ParsedFile } from './types';
 
 /** Changes applied to the linker in one batch. */
@@ -149,6 +150,8 @@ export class IncrementalLinker {
   private readonly dependents = new Map<RelPath, Set<RelPath>>();
   /** Files each file imports bindings from. */
   private readonly dependencies = new Map<RelPath, readonly RelPath[]>();
+  /** Namespaces and types of the namespace-based languages (Java, C#, Go). */
+  private readonly symbols = new SymbolTable();
   /** Lazily assembled full graph; `null` after any change. */
   private assembled: Omit<GraphSnapshot, 'version'> | null = null;
 
@@ -185,6 +188,7 @@ export class IncrementalLinker {
     this.watchedPaths.clear();
     this.dependents.clear();
     this.dependencies.clear();
+    this.symbols.clear();
     this.assembled = null;
   }
 
@@ -209,6 +213,13 @@ export class IncrementalLinker {
 
     // Files whose import resolution may change.
     const reindex = new Set(upserted.keys());
+    for (const key of this.updateSymbols(upserted, removed)) {
+      for (const watcher of this.watchers.get(key) ?? []) {
+        if (this.knownFiles.has(watcher)) {
+          reindex.add(watcher);
+        }
+      }
+    }
     for (const filePath of [...added, ...removed]) {
       for (const watcher of this.watchers.get(filePath) ?? []) {
         if (this.knownFiles.has(watcher)) {
@@ -235,7 +246,7 @@ export class IncrementalLinker {
         continue;
       }
       this.unregister(filePath);
-      const index = indexFile(parsed, this.knownFiles, this.languages);
+      const index = indexFile(parsed, this.knownFiles, this.languages, this.symbols);
       this.indexes.set(filePath, index);
       this.register(filePath, index);
     }
@@ -316,7 +327,59 @@ export class IncrementalLinker {
   }
 
   /**
-   * Records which paths a file watches and which files it depends on.
+   * Updates the symbol table with removed and upserted files and lists the
+   * symbol keys whose watchers must be re-indexed: the namespaces of those
+   * files (before and after), plus the namespace set of a language when one
+   * of its namespaces appeared or disappeared.
+   *
+   * @param upserted - New or changed files.
+   * @param removed - Removed files.
+   * @returns The changed symbol keys.
+   */
+  private updateSymbols(
+    upserted: ReadonlyMap<RelPath, ParsedFile>,
+    removed: readonly RelPath[],
+  ): Set<string> {
+    const changed = new Set<string>();
+    /**
+     * Records the keys of one file version and updates the table.
+     *
+     * @param file - File version.
+     * @param add - Whether it is added (otherwise removed).
+     */
+    const apply = (file: ParsedFile, add: boolean): void => {
+      const language = this.languages.forFile(file.filePath);
+      if (language === undefined || file.namespace === undefined) {
+        return;
+      }
+      for (const namespace of namespacesOf(file)) {
+        changed.add(namespaceKey(language.id, namespace));
+      }
+      const setChanged = add
+        ? this.symbols.add(language.id, file)
+        : this.symbols.remove(language.id, file);
+      if (setChanged) {
+        changed.add(namespaceSetKey(language.id));
+      }
+    };
+    for (const filePath of removed) {
+      const previous = this.indexes.get(filePath)?.parsed;
+      if (previous !== undefined) {
+        apply(previous, false);
+      }
+    }
+    for (const [filePath, file] of upserted) {
+      const previous = this.indexes.get(filePath)?.parsed;
+      if (previous !== undefined) {
+        apply(previous, false);
+      }
+      apply(file, true);
+    }
+    return changed;
+  }
+
+  /**
+   * Records which paths and symbol keys a file watches and which files it depends on.
    *
    * @param filePath - Workspace-relative POSIX path.
    * @param index - Freshly built index of the file.
@@ -325,13 +388,19 @@ export class IncrementalLinker {
     const candidates = index.parsed.imports.flatMap((parsedImport) =>
       this.languages.listImportCandidates(filePath, parsedImport.specifier),
     );
-    const uniqueCandidates = [...new Set(candidates)];
+    // Namespace-based languages also watch the namespaces they look into.
+    const uniqueCandidates = [...new Set([...candidates, ...(index.scope?.watchKeys ?? [])])];
     for (const candidate of uniqueCandidates) {
       addToSet(this.watchers, candidate, filePath);
     }
     this.watchedPaths.set(filePath, uniqueCandidates);
 
-    const targets = [...new Set([...index.bindings.values()].map((binding) => binding.targetFile))];
+    const targets = [
+      ...new Set([
+        ...[...index.bindings.values()].map((binding) => binding.targetFile),
+        ...(index.scope?.dependencies ?? []),
+      ]),
+    ];
     for (const target of targets) {
       addToSet(this.dependents, target, filePath);
     }

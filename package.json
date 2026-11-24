@@ -1,7 +1,7 @@
 {
   "name": "codegraph",
   "displayName": "CodeGraph",
-  "description": "Interactive graph of files, functions, imports and calls for TypeScript/JavaScript projects.",
+  "description": "Interactive graph of files, functions, imports and calls for TypeScript, JavaScript, Python, Java, C# and Go projects.",
   "version": "0.0.1",
   "publisher": "kevin",
   "private": true,
@@ -83,14 +83,14 @@
       "explorer/context": [
         {
           "command": "codegraph.showConnections",
-          "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py)$/",
+          "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py|java|cs|go)$/",
           "group": "navigation@90"
         }
       ],
       "editor/context": [
         {
           "command": "codegraph.showConnections",
-          "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py)$/",
+          "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py|java|cs|go)$/",
           "group": "navigation@90"
         }
       ]

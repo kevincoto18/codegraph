@@ -20,6 +20,10 @@ export const EXCLUDED_DIRECTORIES: readonly string[] = [
   'venv',
   '.tox',
   'site-packages',
+  'vendor',
+  'target',
+  'obj',
+  '.gradle',
 ];
 
 /**
@@ -55,6 +59,20 @@ export interface LanguageDefinition {
    * @returns Candidate paths (empty for external packages).
    */
   listImportCandidates(fromFile: RelPath, specifier: string): RelPath[];
+  /**
+   * Finds the workspace package an import path refers to, for `package`
+   * imports (Go: `"example.com/app/internal/db"` → the `internal/db` folder).
+   *
+   * @param specifier - Import path as written.
+   * @param packages - Package directories present in the workspace.
+   * @returns The package directory, or `null` for external packages.
+   */
+  resolvePackage?(specifier: string, packages: ReadonlySet<string>): string | null;
+  /**
+   * Whether code in a namespace also sees the types of its parent namespaces
+   * (C#: `A.B.C` sees `A.B` and `A`).
+   */
+  readonly namespacesSeeParents?: boolean;
 }
 
 /** A language definition plus its parser. */

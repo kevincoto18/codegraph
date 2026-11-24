@@ -148,22 +148,51 @@ body {
   box-sizing: border-box;
 }
 
-.cg-file__badge {
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--vscode-editor-background);
-  background: var(--vscode-charts-blue, #3794ff);
+/* Language badges (file nodes, search results). */
+.cg-lang {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 20px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: #ffffff;
+  background: #6e7681;
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 25%);
 }
 
-.cg-file__badge--js,
-.cg-file__badge--jsx {
-  background: var(--vscode-charts-yellow, #cca700);
+.cg-lang--typescript {
+  background: #3178c6;
 }
 
-.cg-file__badge--py {
-  background: var(--vscode-charts-green, #89d185);
+.cg-lang--javascript {
+  color: #2b2b2b;
+  background: #f1e05a;
+}
+
+.cg-lang--python {
+  color: #ffd43b;
+  background: #3572a5;
+}
+
+.cg-lang--java {
+  background: #c35a0f;
+}
+
+.cg-lang--csharp {
+  background: #68217a;
+}
+
+.cg-lang--go {
+  color: #06303b;
+  background: #00add8;
 }
 
 .cg-file__name {
@@ -1496,4 +1525,10 @@ body {
   .cg-animate .react-flow__node {
     transition: none;
   }
+}
+
+/* Search results: badges and the function mark share one column width. */
+.cg-result .cg-lang,
+.cg-result .cg-result__kind {
+  width: 34px;
 }

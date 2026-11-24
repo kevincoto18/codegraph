@@ -2,6 +2,7 @@ import type { JSX, Ref } from 'react';
 import { useEffect, useId, useRef } from 'react';
 
 import { Icon } from './icons';
+import { LanguageBadgeView } from './LanguageBadgeView';
 import { formatMatchCount } from './search';
 import type { SearchHit } from './searchIndex';
 import { splitHighlights } from './searchIndex';
@@ -184,9 +185,11 @@ export function SearchTab({
                   onOpen(index);
                 }}
               >
-                <span className={`cg-result__kind cg-result__kind--${hit.entry.kind}`}>
-                  {hit.entry.kind === 'file' ? 'F' : 'ƒ'}
-                </span>
+                {hit.entry.kind === 'file' ? (
+                  <LanguageBadgeView filePath={`${hit.entry.detail}/${hit.entry.name}`} />
+                ) : (
+                  <span className="cg-result__kind cg-result__kind--function">ƒ</span>
+                )}
                 <span className="cg-result__text">
                   <span className="cg-result__name">
                     {splitHighlights(hit.entry.name, hit.positions).map((segment, part) =>

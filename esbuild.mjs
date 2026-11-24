@@ -12,7 +12,13 @@ import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Tree-sitter engine and grammars copied next to the analyzer bundles. */
-const GRAMMAR_FILES = ['tree-sitter.wasm', 'tree-sitter-python.wasm'];
+const GRAMMAR_FILES = [
+  'tree-sitter.wasm',
+  'tree-sitter-python.wasm',
+  'tree-sitter-java.wasm',
+  'tree-sitter-c-sharp.wasm',
+  'tree-sitter-go.wasm',
+];
 
 /** Folder of the prebuilt grammars in `@vscode/tree-sitter-wasm`. */
 const GRAMMAR_SOURCE = join('node_modules', '@vscode', 'tree-sitter-wasm', 'wasm');

@@ -3,6 +3,12 @@
  * parser (including the TypeScript compiler and the Tree-sitter engine), so it
  * is only imported by the analyzer bundle and the parser workers.
  */
+import { CSHARP_LANGUAGE } from './csharpLanguage';
+import { parseCSharp, prepareCSharp } from './csharpParser';
+import { GO_LANGUAGE } from './goLanguage';
+import { parseGo, prepareGo } from './goParser';
+import { JAVA_LANGUAGE } from './javaLanguage';
+import { parseJava, prepareJava } from './javaParser';
 import type { LanguageAnalyzer } from './language';
 import { AnalyzerRegistry } from './language';
 import { LANGUAGES } from './languages';
@@ -19,6 +25,9 @@ type ParserImplementation = Pick<LanguageAnalyzer, 'parse' | 'prepare'>;
 const PARSERS: Readonly<Record<string, ParserImplementation>> = {
   [TYPESCRIPT_LANGUAGE.id]: { parse: parseSource },
   [PYTHON_LANGUAGE.id]: { parse: parsePython, prepare: preparePython },
+  [JAVA_LANGUAGE.id]: { parse: parseJava, prepare: prepareJava },
+  [CSHARP_LANGUAGE.id]: { parse: parseCSharp, prepare: prepareCSharp },
+  [GO_LANGUAGE.id]: { parse: parseGo, prepare: prepareGo },
 };
 
 /**

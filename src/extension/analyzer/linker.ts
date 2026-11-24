@@ -22,6 +22,9 @@ import type {
 import { createEdgeId, createFileId, createFunctionId } from '../../shared';
 import type { LanguageRegistry } from './language';
 import { LANGUAGES } from './languages';
+import type { SymbolScope } from './scope';
+import { buildSymbolScope, receiverTypeFiles, resolveScopedCall } from './scope';
+import { SymbolTable } from './symbols';
 import type { ImportBinding, ImportSyntax, ParsedCall, ParsedFile, ParsedFunction } from './types';
 
 /** Export name used for default exports. */
@@ -55,6 +58,8 @@ export interface FileIndex {
   readonly bindings: ReadonlyMap<string, ResolvedBinding>;
   /** Resolved imports as `[targetFile, line]`, in source order. */
   readonly resolvedImports: readonly (readonly [RelPath, number])[];
+  /** Namespace-based visibility (Java, C#, Go); `null` for path-based languages. */
+  readonly scope: SymbolScope | null;
 }
 
 /** Indexes of every file in the workspace, by path. */
@@ -75,8 +80,9 @@ export function linkGraph(
 ): GraphSnapshot {
   const sortedFiles = [...parsedFiles].sort((a, b) => a.filePath.localeCompare(b.filePath));
   const knownFiles = new Set(sortedFiles.map((file) => file.filePath));
+  const symbols = buildSymbolTable(sortedFiles, languages);
   const workspace: WorkspaceIndex = new Map(
-    sortedFiles.map((file) => [file.filePath, indexFile(file, knownFiles, languages)]),
+    sortedFiles.map((file) => [file.filePath, indexFile(file, knownFiles, languages, symbols)]),
   );
 
   const nodes: GraphNode[] = [];
@@ -103,12 +109,14 @@ export function linkGraph(
  * @param parsed - Parser output of the file.
  * @param knownFiles - Paths of every analyzable file (for import resolution).
  * @param languages - Languages used to resolve imports.
+ * @param symbols - Namespaces and types of the workspace (namespace-based languages).
  * @returns The file index.
  */
 export function indexFile(
   parsed: ParsedFile,
   knownFiles: ReadonlySet<RelPath>,
   languages: LanguageRegistry = LANGUAGES,
+  symbols: SymbolTable = new SymbolTable(),
 ): FileIndex {
   const functions = assignFunctionIds(parsed);
   const functionsByName = new Map<string, string>();
@@ -129,6 +137,7 @@ export function indexFile(
   }
 
   const { bindings, resolvedImports } = resolveFileImports(parsed, knownFiles, languages);
+  const scope = buildSymbolScope(parsed, languages.forFile(parsed.filePath), symbols);
 
   return {
     parsed,
@@ -138,8 +147,30 @@ export function indexFile(
     methodsByClass,
     exports: new Map(parsed.exports.map((entry) => [entry.exportedName, entry.localName])),
     bindings,
-    resolvedImports,
+    resolvedImports: scope === null ? resolvedImports : [...resolvedImports, ...scope.typeImports],
+    scope,
   };
+}
+
+/**
+ * Builds the symbol table of a set of files.
+ *
+ * @param files - Parsed files.
+ * @param languages - Languages of the files.
+ * @returns Namespaces and types of the namespace-based languages.
+ */
+export function buildSymbolTable(
+  files: Iterable<ParsedFile>,
+  languages: LanguageRegistry = LANGUAGES,
+): SymbolTable {
+  const symbols = new SymbolTable();
+  for (const file of files) {
+    const language = languages.forFile(file.filePath);
+    if (language !== undefined && file.namespace !== undefined) {
+      symbols.add(language.id, file);
+    }
+  }
+  return symbols;
 }
 
 /**
@@ -175,6 +206,9 @@ function resolveFileImports(
   const resolvedImports: (readonly [RelPath, number])[] = [];
 
   for (const parsedImport of parsed.imports) {
+    if ((parsedImport.target ?? 'module') !== 'module') {
+      continue; // Resolved by name (see scope.ts).
+    }
     const targetFile = languages.resolveImport(parsed.filePath, parsedImport.specifier, knownFiles);
     if (targetFile === null) {
       continue;
@@ -263,10 +297,50 @@ export function addCallEdges(
 ): void {
   for (const fn of fileIndex.functions) {
     for (const call of fn.parsed.calls) {
+      if (fileIndex.scope !== null) {
+        addScopedCallEdge(call, fn, fileIndex, workspace, edges);
+        continue;
+      }
       const target = resolveCall(call, fn.parsed, fileIndex, workspace);
       if (target !== null && target !== fn.id) {
         addEdge(edges, { kind: 'call', source: fn.id, target, line: call.line });
       }
+    }
+  }
+}
+
+/**
+ * Adds the edge of a call of a namespace-based language and, when the callee
+ * is reached through a namespace or package import, the import edge too.
+ *
+ * @param call - Parsed call.
+ * @param caller - Calling function.
+ * @param fileIndex - File of the caller.
+ * @param workspace - Indexes of every file.
+ * @param edges - Edge accumulator (mutated in place).
+ */
+function addScopedCallEdge(
+  call: ParsedCall,
+  caller: IndexedFunction,
+  fileIndex: FileIndex,
+  workspace: WorkspaceIndex,
+  edges: Map<string, GraphEdge>,
+): void {
+  const target = resolveScopedCall(call, caller.parsed, fileIndex, workspace);
+  if (target !== null && target.id !== caller.id) {
+    addEdge(edges, { kind: 'call', source: caller.id, target: target.id, line: call.line });
+  }
+  // A type used through a namespace import (also `new Repo()` without a constructor).
+  const usedFiles = target === null ? receiverTypeFiles(call, fileIndex) : [target.file];
+  for (const file of usedFiles) {
+    const importLine = fileIndex.scope?.importedFiles.get(file);
+    if (importLine !== undefined && file !== fileIndex.parsed.filePath) {
+      addEdge(edges, {
+        kind: 'import',
+        source: fileIndex.fileId,
+        target: createFileId(file),
+        line: importLine,
+      });
     }
   }
 }

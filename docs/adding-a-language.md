@@ -94,6 +94,32 @@ complement any language for semantic call resolution.
 file (2,000 files: ~1.3 s parse, ~2.2 s parse + extraction, 3 s full scan);
 large scans use the worker threads.
 
+## Path-based and name-based languages
+
+Languages resolve imports in one of two ways, chosen by the parser output:
+
+|               | Path-based (TypeScript, Python)                                 | Name-based (Java, C#, Go)                                                                                                                          |
+| ------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Import means  | A file found from the specifier's path (`listImportCandidates`) | A type, a namespace or a package folder (`ParsedImport.target`: `type`, `namespace`, `package`)                                                    |
+| `ParsedFile`  | `imports`, `functions`, `exports`                               | Also `namespace` (package, namespace or Go folder) and `types` (bases, field types)                                                                |
+| Who sees whom | Only what is imported                                           | Same namespace/package without import; C# also parent namespaces (`namespacesSeeParents`); Go imports matched to a folder (`resolvePackage`)       |
+| Calls         | `f()`, `m.f()`, `this.f()` with import bindings                 | Also by type: `ParsedCall.receiverType` (inferred by the parser), `receiverField` (`this.repo.save()`), `call:pkg.New` (result type of a function) |
+
+Name-based resolution lives in [`symbols.ts`](../src/extension/analyzer/symbols.ts)
+(a workspace table of namespaces and types, updated incrementally) and
+[`scope.ts`](../src/extension/analyzer/scope.ts) (what a file can see and how
+its calls resolve, following base types). The incremental linker watches the
+namespaces each file looks into, so adding a class to a package re-links the
+files that use that package. Import edges of `namespace`/`package` imports are
+only drawn to the files that are actually used.
+
+**Parsers of name-based languages** share
+[`treeSitterDrafts.ts`](../src/extension/analyzer/treeSitterDrafts.ts): the top
+level (types, members) is walked in JavaScript, then one query collects
+parameters, local declarations and calls inside bodies; each capture is
+assigned to its enclosing member, which keeps a map of variable types used to
+type the following calls.
+
 ## What stays language-specific
 
 - **Import resolution** (`listImportCandidates`): every ecosystem has its own
@@ -109,7 +135,6 @@ large scans use the worker threads.
 
 | Stage        | Languages                                           |
 | ------------ | --------------------------------------------------- |
-| Today        | TypeScript, JavaScript                              |
-| First batch  | Python, Java, C#, Go                                |
+| Done         | TypeScript, JavaScript, Python, Java, C#, Go        |
 | Second batch | PHP, Rust, Kotlin, Ruby                             |
 | Later        | C / C++ (`#include` resolution, headers and macros) |

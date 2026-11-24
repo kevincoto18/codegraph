@@ -6,17 +6,7 @@ import { memo } from 'react';
 import { useLowDetail } from '../canvasOptions';
 import type { FileFlowNode } from '../flowTypes';
 import { useGraphActions } from '../graphActions';
-
-/**
- * Returns the short language badge of a file.
- *
- * @param filePath - Workspace-relative path.
- * @returns `TS`, `TSX`, `JS` or `JSX`.
- */
-export function getLanguageBadge(filePath: string): string {
-  const extension = filePath.slice(filePath.lastIndexOf('.') + 1);
-  return extension.toUpperCase();
-}
+import { LanguageBadgeView } from '../LanguageBadgeView';
 
 /**
  * Returns the directory part of a workspace-relative path.
@@ -39,7 +29,6 @@ export function getDirectory(filePath: string): string {
  */
 function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
   const { toggle } = useGraphActions();
-  const extension = getLanguageBadge(data.filePath);
   const directory = getDirectory(data.filePath);
   const lowDetail = useLowDetail();
   if (lowDetail) {
@@ -74,9 +63,7 @@ function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
         >
           {data.collapsed ? '▸' : '▾'}
         </button>
-        <span className={`cg-file__badge cg-file__badge--${extension.toLowerCase()}`}>
-          {extension}
-        </span>
+        <LanguageBadgeView filePath={data.filePath} />
         <span className="cg-file__name">{data.label}</span>
         {directory !== '' && <span className="cg-file__dir">{directory}</span>}
         <span className="cg-file__count" title="Functions">

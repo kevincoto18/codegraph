@@ -16,7 +16,7 @@
 | Feature           | Details                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Static analysis   | TypeScript Compiler API (`ts.createSourceFile`), no type checker, no LLM                                                                                                                                                                                                                                                                                                                                                   |
-| Languages         | TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`; `.d.ts` skipped) and Python (`.py`); `node_modules`, `dist`, `build`, `.git`, `files.exclude` and `.gitignore`d files ignored                                                                                                                                                                                                                                         |
+| Languages         | TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`; `.d.ts` skipped), Python (`.py`), Java (`.java`), C# (`.cs`) and Go (`.go`); `node_modules`, `dist`, `build`, `vendor`, `target`, `obj`, `.git`, `files.exclude` and `.gitignore`d files ignored                                                                                                                                                                      |
 | Imports           | ES default / named (aliased) / namespace / side-effect, re-exports, `require`, `import x = require()`                                                                                                                                                                                                                                                                                                                      |
 | Functions         | Declarations, arrow & function expressions assigned to variables, class methods, constructors, arrow class properties, anonymous default exports, CommonJS exported functions                                                                                                                                                                                                                                              |
 | Calls             | `foo()`, `ns.foo()`, `this.foo()`, `Class.staticMethod()` — local or imported (ES and CommonJS)                                                                                                                                                                                                                                                                                                                            |
@@ -109,7 +109,7 @@ flowchart LR
 src/
 ├─ shared/        Environment-agnostic contract: graph model, ids, message protocol + guards
 ├─ extension/     VS Code host
-│  ├─ analyzer/   Pure analysis: language registry, TS/JS language (parser, resolver), linker, incremental linker, diff
+│  ├─ analyzer/   Pure analysis: language registry, one language/parser pair per language, symbol table (namespaces, types), linker, incremental linker, diff
 │  ├─ cache.ts, cacheStore.ts, exclusions.ts, graphService.ts, changeScheduler.ts   Pure orchestration (unit-tested)
 │  ├─ analysis.ts Entry of the analyzer bundle (`dist/analysis.js`), loaded on first use
 │  └─ controller.ts, panel.ts, workspaceSync.ts, workspaceReader.ts, navigation.ts   VS Code adapters
@@ -170,14 +170,24 @@ and asserts the complete expected graph.
 
 ## Languages
 
-| Language                | Parser                  | Files                                                       | Imports resolved                                                                                                                   |
-| ----------------------- | ----------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| TypeScript / JavaScript | TypeScript Compiler API | `.ts` `.tsx` `.js` `.jsx` (not `.d.ts`)                     | Relative paths, `index` files, `.js` → `.ts`                                                                                       |
-| Python                  | Tree-sitter (WASM)      | `.py` (not `__pycache__`, `venv`, `.venv`, `site-packages`) | Relative (`.`, `..`), absolute from the root, `src/` or the importer's folders, packages (`__init__.py`), `from pkg import module` |
+| Language                | Parser                  | Files                                                       | Imports resolved                                                                                                                                                                                                              |
+| ----------------------- | ----------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript / JavaScript | TypeScript Compiler API | `.ts` `.tsx` `.js` `.jsx` (not `.d.ts`)                     | Relative paths, `index` files, `.js` → `.ts`                                                                                                                                                                                  |
+| Python                  | Tree-sitter (WASM)      | `.py` (not `__pycache__`, `venv`, `.venv`, `site-packages`) | Relative (`.`, `..`), absolute from the root, `src/` or the importer's folders, packages (`__init__.py`), `from pkg import module`                                                                                            |
+| Java                    | Tree-sitter (WASM)      | `.java` (not `target`, `.gradle`)                           | By package and type name: `import a.b.Repo`, `import a.b.*`, same package without import; calls typed by parameters, locals (`var`), fields and `new`, inherited methods                                                      |
+| C#                      | Tree-sitter (WASM)      | `.cs` (not `obj`)                                           | By namespace and type name: `using A.B`, `using R = A.B.Repo`, `using static`, parent namespaces, block and file-scoped namespaces, partial classes; properties with code are functions                                       |
+| Go                      | Tree-sitter (WASM)      | `.go` (not `vendor`)                                        | A package is a folder: same-package functions, imports matched to a folder by path suffix (`example.com/app/internal/db` → `internal/db`), aliases, methods by receiver type, embedded structs, `x := pkg.New()` result types |
 
 Every language plugs in through the same `LanguageAnalyzer` contract; see
 [docs/adding-a-language.md](docs/adding-a-language.md) for the design and the
-rollout plan (Java, C#, Go next). `samples/python-demo` is the Python sample.
+rollout plan (PHP, Rust, Kotlin, Ruby next). Sample projects: `samples/python-demo`,
+`samples/java-demo`, `samples/csharp-demo` and `samples/go-demo`.
+
+Java, C# and Go calls such as `repo.save()` are resolved **by type**: the parser
+infers the receiver's type from what the same file says (parameters, local
+variables, `var x = new T()`, fields, method receivers) and the linker finds
+the method in the declaring type or its base types. A receiver whose type comes
+from another expression (`getRepo().save()`) stays unresolved.
 
 ## Known limitations
 
