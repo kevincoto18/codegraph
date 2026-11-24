@@ -22,6 +22,7 @@ import { resolveFocusTarget } from './focusTarget';
 import type { GraphService, ScanProgressListener } from './graphService';
 import { openFileAtLine } from './navigation';
 import { formatPerformanceReport } from './perf';
+import type { PanelPlacement } from './panel';
 import { CodeGraphPanel } from './panel';
 import type { CodeGraphSettings } from './settings';
 import { SETTINGS_SECTION, readSettings, toViewOptions } from './settings';
@@ -198,10 +199,13 @@ export class CodeGraphController implements vscode.Disposable {
   }
 
   /**
-   * Shows the graph panel full size in the editor area, creating it if needed.
-   * The analysis starts when the webview reports it is ready.
+   * Shows the graph panel, creating it if needed. The analysis starts when the
+   * webview reports it is ready.
+   *
+   * @param placement - Where to show it; by default the whole active editor
+   *   area (a panel that already exists stays where it is).
    */
-  public openGraph(): void {
+  public openGraph(placement?: PanelPlacement): void {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (folder === undefined) {
       void vscode.window.showWarningMessage('CodeGraph: open a folder to analyze.');
@@ -210,7 +214,7 @@ export class CodeGraphController implements vscode.Disposable {
     void this.ensureSession(folder);
 
     if (this.panel !== undefined) {
-      this.panel.reveal();
+      this.panel.reveal(placement);
       return;
     }
     this.panel = CodeGraphPanel.create(
@@ -223,6 +227,7 @@ export class CodeGraphController implements vscode.Disposable {
         this.graphShown = false;
       },
       this.logger,
+      placement,
     );
   }
 
@@ -244,8 +249,28 @@ export class CodeGraphController implements vscode.Disposable {
         ? editor.selection.active.line + 1
         : undefined;
     this.pendingFocus = line === undefined ? { uri: target } : { uri: target, line };
-    this.openGraph();
+    this.openGraph(this.besideEditor(editor));
     await this.flushFocus();
+  }
+
+  /**
+   * Chooses where to show the graph next to an editor: in a split beside it,
+   * keeping the focus in the editor, so the code stays visible. A graph
+   * already shown in another column stays there.
+   *
+   * @param editor - Active editor, if any.
+   * @returns The placement, or `undefined` (default placement) without an editor.
+   */
+  private besideEditor(editor: vscode.TextEditor | undefined): PanelPlacement | undefined {
+    if (editor === undefined) {
+      return undefined;
+    }
+    const panelColumn = this.panel?.viewColumn;
+    const viewColumn =
+      panelColumn !== undefined && panelColumn !== editor.viewColumn
+        ? panelColumn
+        : vscode.ViewColumn.Beside;
+    return { viewColumn, preserveFocus: true };
   }
 
   /**

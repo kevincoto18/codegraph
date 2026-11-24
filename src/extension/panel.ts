@@ -16,6 +16,23 @@ const PANEL_TITLE = 'CodeGraph';
 /** Path segments of the webview bundle inside the extension. */
 const WEBVIEW_DIST_SEGMENTS = ['dist', 'webview'] as const;
 
+/** Folder of the tab icons, relative to the extension root. */
+const MEDIA_FOLDER = 'media';
+
+/** Where a panel is shown. */
+export interface PanelPlacement {
+  /** Editor column of the panel. */
+  readonly viewColumn: vscode.ViewColumn;
+  /** Keep the keyboard focus where it is (e.g. in the editor). */
+  readonly preserveFocus: boolean;
+}
+
+/** Default placement: the whole active editor area, focused. */
+const FULL_EDITOR_PLACEMENT: PanelPlacement = {
+  viewColumn: vscode.ViewColumn.Active,
+  preserveFocus: false,
+};
+
 /** Receives validated messages sent by the webview. */
 export type WebviewMessageHandler = (message: WebviewToHost) => void;
 
@@ -71,13 +88,13 @@ export class CodeGraphPanel implements vscode.Disposable {
   }
 
   /**
-   * Creates and shows a new CodeGraph panel in the active editor column, so
-   * the graph uses the whole editor area.
+   * Creates and shows a new CodeGraph panel, with the CodeGraph icon on its tab.
    *
    * @param extensionUri - Root URI of the extension.
    * @param onMessage - Handler for validated webview messages.
    * @param onDispose - Called once when the panel is closed.
    * @param logger - Destination of protocol warnings.
+   * @param placement - Column and focus; by default the whole active editor area.
    * @returns The new panel.
    */
   public static create(
@@ -85,20 +102,29 @@ export class CodeGraphPanel implements vscode.Disposable {
     onMessage: WebviewMessageHandler,
     onDispose: () => void,
     logger: PanelLogger,
+    placement: PanelPlacement = FULL_EDITOR_PLACEMENT,
   ): CodeGraphPanel {
     const webviewRoot = vscode.Uri.joinPath(extensionUri, ...WEBVIEW_DIST_SEGMENTS);
-    const panel = vscode.window.createWebviewPanel(
-      VIEW_TYPE,
-      PANEL_TITLE,
-      vscode.ViewColumn.Active,
-      { enableScripts: true, localResourceRoots: [webviewRoot], retainContextWhenHidden: false },
-    );
+    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, PANEL_TITLE, placement, {
+      enableScripts: true,
+      localResourceRoots: [webviewRoot],
+      retainContextWhenHidden: false,
+    });
+    panel.iconPath = {
+      light: vscode.Uri.joinPath(extensionUri, MEDIA_FOLDER, 'codegraph-light.svg'),
+      dark: vscode.Uri.joinPath(extensionUri, MEDIA_FOLDER, 'codegraph-dark.svg'),
+    };
     return new CodeGraphPanel(panel, extensionUri, onMessage, onDispose, logger);
   }
 
-  /** Brings the panel to the front. */
-  public reveal(): void {
-    this.panel.reveal();
+  /**
+   * Brings the panel to the front.
+   *
+   * @param placement - Column to move it to and whether to keep the focus
+   *   where it is; by default it stays in its column and takes the focus.
+   */
+  public reveal(placement?: PanelPlacement): void {
+    this.panel.reveal(placement?.viewColumn, placement?.preserveFocus);
   }
 
   /**

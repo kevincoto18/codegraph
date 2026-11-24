@@ -165,3 +165,25 @@ export function getFocusIdsToReveal(
   }
   return reveal;
 }
+
+/**
+ * Chooses the nodes to frame when showing a focus: the focused node, the
+ * neighbor functions and the neighbor files reached directly (imports). A
+ * file that is in the focus only because one of its functions is, is left
+ * out, so a large file does not make the view zoom out.
+ *
+ * @param snapshot - Graph snapshot.
+ * @param focus - Focus neighborhood.
+ * @returns Ids of the model nodes to frame.
+ */
+export function getFocusFitIds(snapshot: GraphSnapshot, focus: FocusResult): string[] {
+  const filesWithFocusedFunctions = new Set<string>();
+  for (const node of snapshot.nodes) {
+    if (node.kind === 'function' && focus.nodeIds.has(node.id)) {
+      filesWithFocusedFunctions.add(node.fileId);
+    }
+  }
+  return [...focus.nodeIds].filter(
+    (id) => id === focus.focusId || !filesWithFocusedFunctions.has(id),
+  );
+}

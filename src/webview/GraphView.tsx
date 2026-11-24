@@ -1,7 +1,7 @@
 import type { FitViewOptions, NodeMouseHandler, OnNodesChange } from '@xyflow/react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   AnalysisState,
@@ -37,20 +37,37 @@ import type { MinimapPreference } from './canvasOptions';
 import { shouldShowMinimap } from './canvasOptions';
 import { ClassNameDecorator, joinClassNames } from './decorate';
 import { filterEdges } from './edgeFilters';
-import type { FocusDirection } from './focus';
-import { computeFocus, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
+import type { FocusDirection, FocusResult } from './focus';
+import { computeFocus, getFocusFitIds, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
 import type { FolderTree } from './folders';
 import { buildFolderTree, isFolderViewEnabled } from './folders';
-import { matchNodes, searchClassOfEdge, searchClassOfNode, withFolderContext } from './search';
+import { searchClassOfEdge, searchClassOfNode, toSearchResult, withFolderContext } from './search';
+import type { SearchHit } from './searchIndex';
+import { buildSearchIndex, searchIndex } from './searchIndex';
 import { Legend } from './Legend';
 import { Icon } from './icons';
 import { applyNodeFilters, listFolders } from './nodeFilters';
+import {
+  createMountState,
+  growMountState,
+  isMountComplete,
+  selectMountedNodes,
+  updateMountState,
+} from './progressiveMount';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { assignFolderColors, listFolderColors } from './folderColors';
 import type { ViewLayoutInputs, ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
+import type { Box } from './viewportMath';
+import {
+  CONTAINER_ZOOM,
+  FOCUS_MIN_ZOOM,
+  FUNCTION_ZOOM,
+  viewportForFocus,
+  viewportToShowBox,
+} from './viewportMath';
 
 /** Props of {@link GraphView}. */
 interface GraphViewProps {
@@ -100,11 +117,17 @@ const NOTICE_MS = 6000;
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
 
-/** Lowest zoom used when centering the node under the editor cursor (keeps labels readable). */
-const SYNC_MIN_ZOOM = 0.75;
+/** Most displayed nodes for which layout changes are animated. */
+const MAX_ANIMATED_NODES = 2500;
 
-/** Margin, in screen pixels, a node must keep from the viewport edge to count as visible. */
-const SYNC_VISIBLE_MARGIN = 24;
+/** How long connections stay hidden while nodes slide after a layout change, in milliseconds. */
+const RELAYOUT_EDGE_HIDE_MS = 260;
+
+/** After a click opens code, a resize within this window keeps the clicked node in view (ms). */
+const NAVIGATION_RESIZE_WINDOW_MS = 3000;
+
+/** Shared empty result list used without search. */
+const NO_HITS: readonly SearchHit[] = [];
 
 /** Shared empty set used when no node is highlighted. */
 const NO_IDS: ReadonlySet<string> = new Set();
@@ -184,7 +207,7 @@ function GraphViewContent({
   onRefresh,
   onNavigate,
 }: GraphViewProps): JSX.Element {
-  const { fitView, getZoom, getInternalNode, getViewport, setCenter } = useReactFlow<
+  const { fitView, getZoom, getInternalNode, getViewport, setViewport } = useReactFlow<
     CodeGraphFlowNode,
     CodeGraphFlowEdge
   >();
@@ -255,14 +278,18 @@ function GraphViewContent({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   /** Node highlighted because the editor cursor is on it (editor sync). */
   const [syncedId, setSyncedId] = useState<string | null>(null);
+  /** Search result selected in the list, and whether it was shown on the canvas. */
+  const [activeMatch, setActiveMatch] = useState({ index: 0, visitedId: null as string | null });
   // Decorators reuse unchanged node/edge objects so React Flow skips re-rendering them.
   const [nodeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowNode>());
   const [edgeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowEdge>());
   const [expiredChangeVersion, setExpiredChangeVersion] = useState(0);
   /** Viewport fit to perform once the next layout has been rendered. */
   const pendingFitRef = useRef<FitViewOptions<CodeGraphFlowNode> | null>(null);
-  /** Node to center once the next layout has been rendered (editor sync). */
+  /** Node to center once the next layout has been rendered (editor sync, search). */
   const pendingCenterRef = useRef<string | null>(null);
+  /** Focus to frame once the next layout has been rendered. */
+  const pendingFocusViewRef = useRef<FocusResult | null>(null);
 
   // Recompute the canvas when its inputs change (adjusting state during render):
   // live patches keep file positions; collapse changes and re-layout do not.
@@ -281,16 +308,62 @@ function GraphViewContent({
     current = measureLayout(layoutState, layoutInputs);
     setLayoutState(current);
   }
+  // Many new nodes (e.g. "Expand all") are mounted over several frames, so the view never freezes.
+  const [mountState, setMountState] = useState(() => createMountState(current.nodes));
+  let mount = mountState;
+  if (mountState.source !== current.nodes) {
+    mount = updateMountState(mountState, current.nodes);
+    setMountState(mount);
+  }
+  const mountedNodes = useMemo(() => selectMountedNodes(mount), [mount]);
+  const mountComplete = isMountComplete(mount);
+  const mountedEdges = useMemo(() => {
+    if (mountComplete) {
+      return current.edges;
+    }
+    const ids = new Set(mountedNodes.map((node) => node.id));
+    return current.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+  }, [mountComplete, mountedNodes, current.edges]);
+
+  useEffect(() => {
+    if (mountComplete) {
+      return undefined;
+    }
+    const frame = requestAnimationFrame(() => {
+      setMountState((state) => growMountState(state));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [mount, mountComplete]);
+
   // Time from the first render until the graph is painted.
   const [mountedAt] = useState(() => performance.now());
 
   const highlightedChangeIds =
     lastChange !== null && lastChange.version > expiredChangeVersion ? lastChange.nodeIds : NO_IDS;
 
-  const search = useMemo(
-    () => withFolderContext(matchNodes(snapshot, debouncedQuery), folderTree),
-    [snapshot, debouncedQuery, folderTree],
+  // The index is only built while searching (≈0.2 s for 60,000 nodes), not on every graph update.
+  const searching = query.trim() !== '' || debouncedQuery.trim() !== '';
+  const searchData = useMemo(
+    () => (searching ? buildSearchIndex(snapshot) : null),
+    [snapshot, searching],
   );
+  const hits = useMemo(
+    () => (searchData === null ? NO_HITS : searchIndex(searchData, debouncedQuery)),
+    [searchData, debouncedQuery],
+  );
+  // A new result list starts again from its best result.
+  const [hitsSeen, setHitsSeen] = useState(hits);
+  if (hitsSeen !== hits) {
+    setHitsSeen(hits);
+    setActiveMatch({ index: 0, visitedId: null });
+  }
+  const search = useMemo(
+    () => withFolderContext(toSearchResult(hits, debouncedQuery), folderTree),
+    [hits, debouncedQuery, folderTree],
+  );
+  const currentMatchId = search === null ? null : activeMatch.visitedId;
   const focus = useMemo(() => {
     if (focusId === null) {
       return null;
@@ -311,28 +384,30 @@ function GraphViewContent({
   );
   const displayedNodes = useMemo(
     () =>
-      nodeDecorator.apply(current.nodes, (node) =>
+      nodeDecorator.apply(mountedNodes, (node) =>
         joinClassNames(
           searchClassOfNode(node.id, search),
           highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
           focusedIds === null || focusedIds.has(node.id) ? undefined : 'cg-focus-dimmed',
           node.id === activeFocusId ? 'cg-focus-target' : undefined,
           node.id === syncedId ? 'cg-synced' : undefined,
+          node.id === currentMatchId ? 'cg-current-match' : undefined,
         ),
       ),
     [
       nodeDecorator,
-      current.nodes,
+      mountedNodes,
       search,
       highlightedChangeIds,
       focusedIds,
       activeFocusId,
       syncedId,
+      currentMatchId,
     ],
   );
   const visibleEdges = useMemo(
-    () => filterEdges(current.edges, current.nodes, edgeFilters),
-    [current.edges, current.nodes, edgeFilters],
+    () => filterEdges(mountedEdges, current.nodes, edgeFilters),
+    [mountedEdges, current.nodes, edgeFilters],
   );
   const displayedEdges = useMemo(
     () =>
@@ -394,56 +469,223 @@ function GraphViewContent({
    *
    * @param nodeId - Displayed node to bring into view.
    */
-  const centerOnNode = useCallback(
-    (nodeId: string) => {
-      const node = getInternalNode(nodeId);
+  /**
+   * Box of a node on the canvas, in graph coordinates. A function inside a
+   * collapsed file falls back to its file.
+   *
+   * @param nodeId - Model or canvas node id.
+   * @returns The box, or `null` when the node is not on the canvas.
+   */
+  const boxOf = useCallback(
+    (nodeId: string): Box | null => {
+      let node = getInternalNode(nodeId);
       if (node === undefined) {
-        return;
+        const model = snapshot.nodes.find((item) => item.id === nodeId);
+        node = model?.kind === 'function' ? getInternalNode(model.fileId) : undefined;
+      }
+      if (node === undefined) {
+        return null;
       }
       const { x, y } = node.internals.positionAbsolute;
-      const width = node.measured.width ?? 0;
-      const height = node.measured.height ?? 0;
-      const viewport = getViewport();
-      const paneWidth = canvasRef.current?.clientWidth ?? window.innerWidth;
-      const paneHeight = canvasRef.current?.clientHeight ?? window.innerHeight;
-      const left = x * viewport.zoom + viewport.x;
-      const top = y * viewport.zoom + viewport.y;
-      const visible =
-        viewport.zoom >= SYNC_MIN_ZOOM &&
-        left >= SYNC_VISIBLE_MARGIN &&
-        top >= SYNC_VISIBLE_MARGIN &&
-        left + width * viewport.zoom <= paneWidth - SYNC_VISIBLE_MARGIN &&
-        top + height * viewport.zoom <= paneHeight - SYNC_VISIBLE_MARGIN;
-      if (!visible) {
-        void setCenter(x + width / 2, y + height / 2, {
-          zoom: Math.max(viewport.zoom, SYNC_MIN_ZOOM),
-          duration: VIEWPORT_ANIMATION_MS,
-        });
+      return { x, y, width: node.measured.width ?? 0, height: node.measured.height ?? 0 };
+    },
+    [getInternalNode, snapshot],
+  );
+
+  /**
+   * Current size of the canvas.
+   *
+   * @returns Width and height in screen pixels.
+   */
+  const paneSize = useCallback(
+    () => ({
+      width: canvasRef.current?.clientWidth ?? window.innerWidth,
+      height: canvasRef.current?.clientHeight ?? window.innerHeight,
+    }),
+    [],
+  );
+
+  /**
+   * Shows a node close up: centered at a readable zoom (functions closer than
+   * files and folders), never zooming out, and without moving when it is
+   * already visible at that zoom. Tall files are shown from their header.
+   *
+   * @param nodeId - Node to show.
+   */
+  const centerOnNode = useCallback(
+    (nodeId: string) => {
+      const box = boxOf(nodeId);
+      if (box === null) {
+        return;
+      }
+      const isFunction = getInternalNode(nodeId)?.type === 'function';
+      const viewport = viewportToShowBox(
+        box,
+        paneSize(),
+        getViewport(),
+        isFunction ? FUNCTION_ZOOM : CONTAINER_ZOOM,
+      );
+      if (viewport !== null) {
+        void setViewport(viewport, { duration: VIEWPORT_ANIMATION_MS });
       }
     },
-    [getInternalNode, getViewport, setCenter],
+    [boxOf, getInternalNode, paneSize, getViewport, setViewport],
+  );
+
+  /**
+   * Frames a focus: the focused node at the center, zoomed out just enough to
+   * show its neighbor functions, never below a readable zoom.
+   *
+   * @param focus - Focus neighborhood.
+   */
+  const showFocus = useCallback(
+    (focus: FocusResult) => {
+      const focusBox = boxOf(focus.focusId);
+      if (focusBox === null) {
+        return;
+      }
+      const boxes = getFocusFitIds(snapshot, focus)
+        .map(boxOf)
+        .filter((box): box is Box => box !== null);
+      void setViewport(
+        viewportForFocus(focusBox, boxes, paneSize(), FOCUS_MIN_ZOOM, FUNCTION_ZOOM),
+        { duration: VIEWPORT_ANIMATION_MS },
+      );
+    },
+    [snapshot, boxOf, paneSize, setViewport],
+  );
+
+  /**
+   * Opens the folders and file that hide a node, then centers it when it is
+   * not fully visible.
+   *
+   * @param nodeId - File or function to show.
+   */
+  const bringIntoView = useCallback(
+    (nodeId: string) => {
+      const toExpand = [...getIdsToReveal(snapshot, folderTree, [nodeId])].filter((id) =>
+        collapsedIds.has(id),
+      );
+      if (toExpand.length === 0) {
+        centerOnNode(nodeId);
+        return;
+      }
+      pendingCenterRef.current = nodeId;
+      setCollapsedIds((collapsed) => {
+        const next = new Set(collapsed);
+        toExpand.forEach((id) => next.delete(id));
+        return next;
+      });
+    },
+    [snapshot, folderTree, collapsedIds, centerOnNode],
   );
 
   useEffect(() => {
     const request = pendingFitRef.current;
     const centerId = pendingCenterRef.current;
-    if (request === null && centerId === null) {
+    const focusView = pendingFocusViewRef.current;
+    // Fit once every node is mounted, so the fit covers the whole result.
+    if ((request === null && centerId === null && focusView === null) || !mountComplete) {
       return undefined;
     }
     pendingFitRef.current = null;
     pendingCenterRef.current = null;
-    // Wait one frame so React Flow has synced (and measured) the new node positions.
-    const frame = requestAnimationFrame(() => {
-      if (request !== null) {
-        void fitView(request);
-      } else if (centerId !== null) {
-        centerOnNode(centerId);
-      }
+    pendingFocusViewRef.current = null;
+    // Wait two frames so React Flow has synced and measured the new nodes.
+    let done = false;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        done = true;
+        if (request !== null) {
+          void fitView(request);
+        } else if (focusView !== null) {
+          showFocus(focusView);
+        } else if (centerId !== null) {
+          centerOnNode(centerId);
+        }
+      });
     });
     return () => {
       cancelAnimationFrame(frame);
+      // Measurements re-render the view right after a layout: keep the request for the next run.
+      if (!done) {
+        pendingFitRef.current ??= request;
+        pendingFocusViewRef.current ??= focusView;
+        pendingCenterRef.current ??= centerId;
+      }
     };
-  }, [current, fitView, centerOnNode]);
+  }, [current, mountComplete, fitView, showFocus, centerOnNode]);
+
+  // After a layout change, nodes slide to their new place (CSS transition); the
+  // connections, drawn at the final positions, stay hidden until they arrive.
+  const animatedLayoutRef = useRef(current);
+  const relayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useLayoutEffect(() => {
+    const previous = animatedLayoutRef.current;
+    animatedLayoutRef.current = current;
+    const element = canvasRef.current;
+    const layoutChanged =
+      previous.collapsedIds !== current.collapsedIds ||
+      previous.layoutRequest !== current.layoutRequest ||
+      previous.folderTree !== current.folderTree;
+    if (!layoutChanged || element === null) {
+      return;
+    }
+    element.classList.add('cg-relayout');
+    if (relayoutTimerRef.current !== null) {
+      clearTimeout(relayoutTimerRef.current);
+    }
+    relayoutTimerRef.current = setTimeout(() => {
+      relayoutTimerRef.current = null;
+      element.classList.remove('cg-relayout');
+    }, RELAYOUT_EDGE_HIDE_MS);
+  }, [current]);
+
+  useEffect(
+    () => () => {
+      if (relayoutTimerRef.current !== null) {
+        clearTimeout(relayoutTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  /** Node whose code was just opened by a click (see the resize handling below). */
+  const lastNavigatedRef = useRef<{ readonly id: string; readonly at: number } | null>(null);
+
+  // When the view is resized (e.g. the editor opens beside it), keep the graph
+  // centered, and keep a node whose code was just opened in view.
+  useEffect(() => {
+    const element = canvasRef.current;
+    if (element === null) {
+      return undefined;
+    }
+    let width = element.clientWidth;
+    let height = element.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const deltaWidth = element.clientWidth - width;
+      const deltaHeight = element.clientHeight - height;
+      width = element.clientWidth;
+      height = element.clientHeight;
+      if (deltaWidth === 0 && deltaHeight === 0) {
+        return;
+      }
+      const viewport = getViewport();
+      void setViewport({
+        x: viewport.x + deltaWidth / 2,
+        y: viewport.y + deltaHeight / 2,
+        zoom: viewport.zoom,
+      });
+      const recent = lastNavigatedRef.current;
+      if (recent !== null && performance.now() - recent.at < NAVIGATION_RESIZE_WINDOW_MS) {
+        centerOnNode(recent.id);
+      }
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [getViewport, setViewport, centerOnNode]);
 
   useEffect(() => {
     if (lastChange === null || lastChange.version <= expiredChangeVersion) {
@@ -522,13 +764,23 @@ function GraphViewContent({
     setLayoutRequest((request) => request + 1);
   }, []);
 
+  /**
+   * Results of the latest query: Enter may arrive before the debounce settles.
+   *
+   * @returns The ranked hits of what is typed now.
+   */
+  const latestHits = useCallback(
+    (): readonly SearchHit[] =>
+      query === debouncedQuery || searchData === null ? hits : searchIndex(searchData, query),
+    [query, debouncedQuery, hits, searchData],
+  );
+
   const zoomToMatches = useCallback(() => {
-    // Match the latest query directly: Enter may arrive before the debounce settles.
-    const latest = matchNodes(snapshot, query);
-    if (latest === null || latest.matchedIds.size === 0) {
+    const latest = latestHits();
+    if (latest.length === 0) {
       return;
     }
-    const targets = [...latest.matchedIds].slice(0, MAX_REVEALED_MATCHES);
+    const targets = latest.slice(0, MAX_REVEALED_MATCHES).map((hit) => hit.entry.id);
     const fit: FitViewOptions<CodeGraphFlowNode> = {
       nodes: targets.map((id) => ({ id })),
       duration: VIEWPORT_ANIMATION_MS,
@@ -548,7 +800,86 @@ function GraphViewContent({
       return;
     }
     void fitView(fit);
-  }, [snapshot, query, folderTree, collapsedIds, fitView]);
+  }, [latestHits, snapshot, folderTree, collapsedIds, fitView]);
+
+  /**
+   * Shows a search result on the canvas and marks it as the current one.
+   *
+   * @param index - Index of the result in the ranked list.
+   */
+  const goToMatch = useCallback(
+    (index: number) => {
+      const hit = latestHits()[index];
+      if (hit === undefined) {
+        return;
+      }
+      setActiveMatch({ index, visitedId: hit.entry.id });
+      bringIntoView(hit.entry.id);
+    },
+    [latestHits, bringIntoView],
+  );
+
+  /**
+   * Moves to the next or previous search result and shows it.
+   *
+   * @param delta - `1` for the next result, `-1` for the previous one.
+   */
+  const stepMatch = useCallback(
+    (delta: 1 | -1) => {
+      const count = latestHits().length;
+      if (count === 0) {
+        return;
+      }
+      // The first step shows the selected result itself.
+      const index =
+        activeMatch.visitedId === null
+          ? Math.min(activeMatch.index, count - 1)
+          : (activeMatch.index + delta + count) % count;
+      goToMatch(index);
+    },
+    [latestHits, activeMatch, goToMatch],
+  );
+
+  /**
+   * Opens a search result in the editor.
+   *
+   * @param index - Index of the result in the ranked list.
+   */
+  const openMatch = useCallback(
+    (index: number) => {
+      const hit = latestHits()[index];
+      const node =
+        hit === undefined ? undefined : snapshot.nodes.find((item) => item.id === hit.entry.id);
+      if (node !== undefined) {
+        lastNavigatedRef.current = { id: node.id, at: performance.now() };
+        onNavigate(node.filePath, node.line);
+      }
+    },
+    [latestHits, snapshot, onNavigate],
+  );
+
+  const selectMatch = useCallback((index: number) => {
+    setActiveMatch((current) => (current.index === index ? current : { ...current, index }));
+  }, []);
+
+  // F3 / Shift+F3 move between search results from anywhere in the view.
+  useEffect(() => {
+    /**
+     * Handles the F3 shortcuts.
+     *
+     * @param event - Keyboard event.
+     */
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'F3') {
+        event.preventDefault();
+        stepMatch(event.shiftKey ? -1 : 1);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [stepMatch]);
 
   const enterFocus = useCallback(
     (nodeId: string, direction: FocusDirection = focusDirection) => {
@@ -563,17 +894,12 @@ function GraphViewContent({
       }
       setFocusId(nodeId);
       setFocusDirection(direction);
-      const fit: FitViewOptions<CodeGraphFlowNode> = {
-        nodes: [...neighborhood.nodeIds].map((id) => ({ id })),
-        duration: VIEWPORT_ANIMATION_MS,
-        maxZoom: 1,
-      };
-      // Open what hides the focused node and its neighbors, then fit.
+      // Open what hides the focused node and its neighbors, then frame them.
       const toExpand = [...getFocusIdsToReveal(snapshot, neighborhood, folderTree)].filter((id) =>
         collapsedIds.has(id),
       );
       if (toExpand.length > 0) {
-        pendingFitRef.current = fit;
+        pendingFocusViewRef.current = neighborhood;
         setCollapsedIds((collapsed) => {
           const next = new Set(collapsed);
           toExpand.forEach((id) => next.delete(id));
@@ -581,9 +907,9 @@ function GraphViewContent({
         });
         return;
       }
-      void fitView(fit);
+      showFocus(neighborhood);
     },
-    [snapshot, focusDepth, focusDirection, edgeFilters, folderTree, collapsedIds, fitView],
+    [snapshot, focusDepth, focusDirection, edgeFilters, folderTree, collapsedIds, showFocus],
   );
 
   const exitFocus = useCallback(() => {
@@ -607,6 +933,7 @@ function GraphViewContent({
       if (activeFocusId !== null && node.id !== activeFocusId) {
         enterFocus(node.id);
       }
+      lastNavigatedRef.current = { id: node.id, at: performance.now() };
       onNavigate(node.data.filePath, node.data.line);
     },
     [onNavigate, toggle, activeFocusId, enterFocus],
@@ -636,6 +963,17 @@ function GraphViewContent({
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
+  }, []);
+
+  // While panning or zooming, a lighter style is used (see `.cg-moving` in styles.css).
+  // The class is toggled on the DOM directly so moving never re-renders the view.
+  const handleMoveStart = useCallback(() => {
+    setContextMenu(null);
+    canvasRef.current?.classList.add('cg-moving');
+  }, []);
+
+  const handleMoveEnd = useCallback(() => {
+    canvasRef.current?.classList.remove('cg-moving');
   }, []);
 
   const runContextMenuAction = useCallback(
@@ -702,29 +1040,8 @@ function GraphViewContent({
       }
       return;
     }
-    const toExpand = [...getIdsToReveal(snapshot, folderTree, [nodeId])].filter((id) =>
-      collapsedIds.has(id),
-    );
-    if (toExpand.length === 0) {
-      centerOnNode(nodeId);
-      return;
-    }
-    pendingCenterRef.current = nodeId;
-    setCollapsedIds((collapsed) => {
-      const next = new Set(collapsed);
-      toExpand.forEach((id) => next.delete(id));
-      return next;
-    });
-  }, [
-    revealRequest,
-    onRevealHandled,
-    snapshot,
-    activeFocusId,
-    enterFocus,
-    folderTree,
-    collapsedIds,
-    centerOnNode,
-  ]);
+    bringIntoView(nodeId);
+  }, [revealRequest, onRevealHandled, snapshot, activeFocusId, enterFocus, bringIntoView]);
 
   // Escape leaves focus mode (unless typing in a field).
   useEffect(() => {
@@ -792,9 +1109,15 @@ function GraphViewContent({
     <Sidebar
       search={{
         query,
-        matchCount: search === null ? null : search.matchedIds.size,
         onQueryChange: setQuery,
-        onSubmit: zoomToMatches,
+        hits,
+        activeIndex: activeMatch.index,
+        visited: activeMatch.visitedId !== null,
+        onActiveIndexChange: selectMatch,
+        onGoTo: goToMatch,
+        onOpen: openMatch,
+        onStep: stepMatch,
+        onShowAll: zoomToMatches,
       }}
       connections={edgeFilters}
       onConnectionsChange={setConnections}
@@ -872,7 +1195,9 @@ function GraphViewContent({
           onNodeDoubleClick={handleNodeDoubleClick}
           onNodeContextMenu={handleNodeContextMenu}
           onPaneContextMenu={handlePaneContextMenu}
-          onMoveStart={closeContextMenu}
+          onMoveStart={handleMoveStart}
+          onMoveEnd={handleMoveEnd}
+          animate={displayedNodes.length <= MAX_ANIMATED_NODES}
           showMinimap={showMinimap}
           folderColors={folderColorsEnabled}
           panel={panel}

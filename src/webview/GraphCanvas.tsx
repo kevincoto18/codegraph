@@ -23,6 +23,10 @@ interface GraphCanvasProps {
   readonly onPaneContextMenu: (event: MouseEvent | ReactMouseEvent) => void;
   /** Called when the user starts panning or zooming. */
   readonly onMoveStart: () => void;
+  /** Called when panning or zooming ends. */
+  readonly onMoveEnd: () => void;
+  /** Whether nodes slide to their new position after a layout change. */
+  readonly animate: boolean;
   /** Whether the minimap is rendered. */
   readonly showMinimap: boolean;
   /** Whether files and folders show their folder color stripe. */
@@ -65,6 +69,8 @@ export function GraphCanvas({
   onNodeContextMenu,
   onPaneContextMenu,
   onMoveStart,
+  onMoveEnd,
+  animate,
   showMinimap,
   folderColors,
   panel,
@@ -77,7 +83,13 @@ export function GraphCanvas({
   const edgesHidden = shouldHideEdges(lowDetail, edges.length);
   return (
     <ReactFlow
-      className={[lowDetail ? 'cg-lod' : '', folderColors ? 'cg-colors' : ''].join(' ').trim()}
+      className={[
+        lowDetail ? 'cg-lod' : '',
+        folderColors ? 'cg-colors' : '',
+        animate ? 'cg-animate' : '',
+      ]
+        .join(' ')
+        .trim()}
       nodes={nodes as CodeGraphFlowNode[]}
       edges={edgesHidden ? NO_EDGES : (edges as CodeGraphFlowEdge[])}
       nodeTypes={nodeTypes}
@@ -87,6 +99,7 @@ export function GraphCanvas({
       onNodeContextMenu={onNodeContextMenu}
       onPaneContextMenu={onPaneContextMenu}
       onMoveStart={onMoveStart}
+      onMoveEnd={onMoveEnd}
       zoomOnDoubleClick={false}
       nodesConnectable={false}
       edgesFocusable={false}

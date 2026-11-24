@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { GraphSnapshot } from '../shared';
 import type { CodeGraphFlowNode } from './flowTypes';
 import type { FocusOptions } from './focus';
-import { computeFocus, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
+import { computeFocus, getFocusFitIds, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
 import { buildFolderTree } from './folders';
 import { callEdge, fileNode, functionNode } from './testFixtures';
 
@@ -120,5 +120,25 @@ describe('displaying a focus', () => {
       'src/b.ts',
     ]);
     expect([...getFocusIdsToReveal(SNAPSHOT, focus, null)]).toEqual(['src/b.ts']);
+  });
+});
+
+describe('getFocusFitIds', () => {
+  it('frames functions, not the whole files that contain them', () => {
+    const focus = computeFocus(SNAPSHOT, 'src/b.ts#save', OPTIONS);
+    expect(getFocusFitIds(SNAPSHOT, focus).sort()).toEqual([
+      'lib/c.ts#write',
+      'src/a.ts#run',
+      'src/b.ts#save',
+    ]);
+  });
+
+  it('keeps a focused file and the files it imports', () => {
+    const focus = computeFocus(SNAPSHOT, 'src/a.ts', { ...OPTIONS, imports: true, calls: false });
+    expect(getFocusFitIds(SNAPSHOT, focus).sort()).toEqual([
+      'src/a.ts',
+      'src/a.ts#run',
+      'src/b.ts',
+    ]);
   });
 });

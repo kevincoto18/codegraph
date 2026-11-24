@@ -12,7 +12,8 @@ import type { IconName } from './icons';
 import { Icon } from './icons';
 import type { FolderEntry } from './nodeFilters';
 import { countActiveNodeFilters } from './nodeFilters';
-import { SearchBox } from './SearchBox';
+import type { SearchTabProps } from './SearchTab';
+import { SearchTab } from './SearchTab';
 
 /** Tabs of the sidebar. */
 export type SidebarTab = 'search' | 'connections' | 'filters' | 'focus' | 'view';
@@ -20,15 +21,8 @@ export type SidebarTab = 'search' | 'connections' | 'filters' | 'focus' | 'view'
 /** Most folders listed in the color legend. */
 const MAX_LISTED_FOLDER_COLORS = 12;
 
-/** Search state and callbacks. */
-export interface SidebarSearch {
-  readonly query: string;
-  /** Number of matches, or `null` without search. */
-  readonly matchCount: number | null;
-  readonly onQueryChange: (query: string) => void;
-  /** Zooms to (and reveals) the matches. */
-  readonly onSubmit: () => void;
-}
+/** Search state and callbacks (see {@link SearchTab}). */
+export type SidebarSearch = Omit<SearchTabProps, 'inputRef'>;
 
 /** Node filter state and the data needed to edit it. */
 export interface SidebarFilters {
@@ -256,21 +250,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
             </button>
           </header>
           <div className="cg-flyout__body">
-            {current.id === 'search' && (
-              <>
-                <SearchBox
-                  inputRef={searchRef}
-                  value={search.query}
-                  matchCount={search.matchCount}
-                  onChange={search.onQueryChange}
-                  onSubmit={search.onSubmit}
-                />
-                <p className="cg-side-hint">
-                  Matches files and functions. <kbd>Enter</kbd> opens the folders that hide them and
-                  zooms in · <kbd>Esc</kbd> clears.
-                </p>
-              </>
-            )}
+            {current.id === 'search' && <SearchTab {...search} inputRef={searchRef} />}
 
             {current.id === 'connections' && (
               <SidebarSection title="Show connections">

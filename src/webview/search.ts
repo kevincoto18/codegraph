@@ -1,9 +1,9 @@
 /**
  * Pure name search over the graph model.
  */
-import type { GraphSnapshot } from '../shared';
 import type { FolderTree } from './folders';
 import { getAncestorFolderIds } from './folders';
+import type { SearchHit } from './searchIndex';
 
 /** Outcome of a search. */
 export interface SearchResult {
@@ -24,30 +24,24 @@ export function normalizeQuery(query: string): string {
 }
 
 /**
- * Finds the nodes whose name contains the query. Files match on their path;
- * functions match on their qualified name only (matching them on the file path
- * would select every function of a matching file).
+ * Converts ranked search hits into the ids to highlight on the canvas.
  *
- * @param snapshot - Graph snapshot.
- * @param query - Raw query.
- * @returns The matches, or `null` when the query is empty (no search active).
+ * @param hits - Search hits (empty when nothing matches).
+ * @param query - Query the hits come from.
+ * @returns `null` for a blank query; otherwise the matched ids plus the files
+ *   that contain matched functions.
  */
-export function matchNodes(snapshot: GraphSnapshot, query: string): SearchResult | null {
-  const needle = normalizeQuery(query);
-  if (needle === '') {
+export function toSearchResult(hits: readonly SearchHit[], query: string): SearchResult | null {
+  if (normalizeQuery(query) === '') {
     return null;
   }
   const matchedIds = new Set<string>();
   const highlightedIds = new Set<string>();
-  for (const node of snapshot.nodes) {
-    const haystack = node.kind === 'file' ? node.filePath : node.qualifiedName;
-    if (!haystack.toLowerCase().includes(needle)) {
-      continue;
-    }
-    matchedIds.add(node.id);
-    highlightedIds.add(node.id);
-    if (node.kind === 'function') {
-      highlightedIds.add(node.fileId);
+  for (const { entry } of hits) {
+    matchedIds.add(entry.id);
+    highlightedIds.add(entry.id);
+    if (entry.fileId !== null) {
+      highlightedIds.add(entry.fileId);
     }
   }
   return { matchedIds, highlightedIds };

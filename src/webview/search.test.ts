@@ -6,10 +6,12 @@ import {
   getSearchRole,
   searchClassOfEdge,
   searchClassOfNode,
-  matchNodes,
   normalizeQuery,
+  toSearchResult,
   withFolderContext,
 } from './search';
+import type { SearchResult } from './search';
+import { buildSearchIndex, searchIndex } from './searchIndex';
 import { buildFolderTree } from './folders';
 
 /** Two files; `user.ts` has `saveUser` and `UserService.load`. */
@@ -60,41 +62,49 @@ const SNAPSHOT: GraphSnapshot = {
   edges: [],
 };
 
+/**
+ * Runs a query against {@link SNAPSHOT}.
+ *
+ * @param query - Query.
+ * @returns The ids to highlight.
+ */
+function matchNodes(query: string): SearchResult | null {
+  return toSearchResult(searchIndex(buildSearchIndex(SNAPSHOT), query), query);
+}
+
 describe('normalizeQuery', () => {
   it('trims and lower-cases', () => {
     expect(normalizeQuery('  SaveUser ')).toBe('saveuser');
   });
 });
 
-describe('matchNodes', () => {
+describe('toSearchResult', () => {
   it('returns null for an empty query', () => {
-    expect(matchNodes(SNAPSHOT, '   ')).toBeNull();
+    expect(matchNodes('   ')).toBeNull();
   });
 
   it('matches functions case-insensitively and highlights their file', () => {
-    const result = matchNodes(SNAPSHOT, 'save');
+    const result = matchNodes('save');
     expect(result?.matchedIds).toEqual(new Set(['src/user.ts#saveUser']));
     expect(result?.highlightedIds).toEqual(new Set(['src/user.ts#saveUser', 'src/user.ts']));
   });
 
   it('matches qualified method names', () => {
-    expect(matchNodes(SNAPSHOT, 'service.lo')?.matchedIds).toEqual(
-      new Set(['src/user.ts#UserService.load']),
-    );
+    expect(matchNodes('service.lo')?.matchedIds).toEqual(new Set(['src/user.ts#UserService.load']));
   });
 
   it('matches files by path without matching every function inside', () => {
-    expect(matchNodes(SNAPSHOT, 'src/db')?.matchedIds).toEqual(new Set(['src/db.ts']));
-    expect(matchNodes(SNAPSHOT, 'user.ts')?.matchedIds).toEqual(new Set(['src/user.ts']));
+    expect(matchNodes('src/db')?.matchedIds).toEqual(new Set(['src/db.ts']));
+    expect(matchNodes('user.ts')?.matchedIds).toEqual(new Set(['src/user.ts']));
   });
 
   it('reports no matches', () => {
-    expect(matchNodes(SNAPSHOT, 'nothing')?.matchedIds.size).toBe(0);
+    expect(matchNodes('nothing')?.matchedIds.size).toBe(0);
   });
 });
 
 describe('search decoration', () => {
-  const search = matchNodes(SNAPSHOT, 'save');
+  const search = matchNodes('save');
   if (search === null) {
     throw new Error('Expected an active search.');
   }
@@ -133,7 +143,7 @@ describe('formatMatchCount', () => {
 
 describe('withFolderContext', () => {
   it('highlights the folders that contain highlighted files', () => {
-    const search = matchNodes(SNAPSHOT, 'save');
+    const search = matchNodes('save');
     const tree = buildFolderTree(SNAPSHOT.nodes);
     const extended = withFolderContext(search, tree);
     expect(extended?.matchedIds).toEqual(search?.matchedIds);

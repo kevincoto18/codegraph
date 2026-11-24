@@ -16,6 +16,7 @@ export type IconName =
   | 'eyeOff'
   | 'chevronRight'
   | 'chevronDown'
+  | 'chevronUp'
   | 'sync'
   | 'expand'
   | 'expandAll'
@@ -66,6 +67,7 @@ const ICON_PATHS: Readonly<Record<IconName, ReactNode>> = {
   ),
   chevronRight: <path d="m6 4 4 4-4 4" />,
   chevronDown: <path d="m4 6 4 4 4-4" />,
+  chevronUp: <path d="m4 10 4-4 4 4" />,
   sync: (
     <>
       <path d="M13 6.5A5 5 0 0 0 3.6 5M3 9.5A5 5 0 0 0 12.4 11" />
