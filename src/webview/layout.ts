@@ -52,6 +52,8 @@ export interface BuildFlowGraphOptions {
   readonly folderTree?: FolderTree | null;
   /** Layout parameters. */
   readonly layout?: LayoutOptions;
+  /** Color of each folder (see `toFlowElements`). */
+  readonly folderColors?: ReadonlyMap<string, string> | undefined;
 }
 
 /** Container id used for nodes at the top level of the canvas. */
@@ -529,7 +531,12 @@ export function buildFlowGraph(
   snapshot: GraphSnapshot,
   options: BuildFlowGraphOptions = {},
 ): FlowElements {
-  const elements = toFlowElements(snapshot, options.collapsedIds, options.folderTree ?? null);
+  const elements = toFlowElements(
+    snapshot,
+    options.collapsedIds,
+    options.folderTree ?? null,
+    options.folderColors,
+  );
   return {
     nodes: layoutFileNodes(elements, options.layout ?? DEFAULT_LAYOUT_OPTIONS),
     edges: elements.edges,

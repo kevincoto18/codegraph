@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { GraphSnapshot } from '../shared';
+import { DEFAULT_VIEW_PREFERENCES } from '../shared';
 import { INITIAL_GRAPH_CHANNEL_STATE, reduceHostMessage, summarizeGraph } from './graphChannel';
 import { functionNode, makePatch } from './testFixtures';
 
@@ -58,6 +59,8 @@ describe('reduceHostMessage', () => {
       lastChange: null,
       options: { collapseMode: 'always', folderViewMode: 'auto' },
       focusRequest: null,
+      revealRequest: null,
+      preferences: null,
     });
   });
 
@@ -75,6 +78,8 @@ describe('reduceHostMessage', () => {
       lastChange: null,
       options: { collapseMode: 'always', folderViewMode: 'auto' },
       focusRequest: null,
+      revealRequest: null,
+      preferences: null,
     });
   });
 
@@ -182,5 +187,25 @@ describe('focus requests', () => {
     const second = reduceHostMessage(first, { type: 'focus', nodeId: 'a.ts' });
     expect(first.focusRequest).toEqual({ nodeId: 'a.ts', sequence: 1 });
     expect(second.focusRequest).toEqual({ nodeId: 'a.ts', sequence: 2 });
+  });
+});
+
+describe('editor sync and preferences', () => {
+  it('numbers every reveal request', () => {
+    const first = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'reveal',
+      nodeId: 'a.ts',
+    });
+    const second = reduceHostMessage(first, { type: 'reveal', nodeId: 'a.ts#run' });
+    expect(second.revealRequest).toEqual({ nodeId: 'a.ts#run', sequence: 2 });
+    expect(second.focusRequest).toBeNull();
+  });
+
+  it('stores the preferences sent by the host', () => {
+    const state = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'preferences',
+      preferences: DEFAULT_VIEW_PREFERENCES,
+    });
+    expect(state.preferences).toBe(DEFAULT_VIEW_PREFERENCES);
   });
 });

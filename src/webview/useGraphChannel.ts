@@ -3,7 +3,7 @@
  */
 import { useCallback, useEffect, useReducer } from 'react';
 
-import type { RelPath } from '../shared';
+import type { RelPath, ViewPreferences } from '../shared';
 import type { GraphChannelState } from './graphChannel';
 import { INITIAL_GRAPH_CHANNEL_STATE, reduceHostMessage } from './graphChannel';
 import { SnapshotAssembler } from './snapshotAssembler';
@@ -15,6 +15,8 @@ export interface GraphChannel extends GraphChannelState {
   readonly refresh: () => void;
   /** Asks the host to open a file at a 1-based line. */
   readonly navigate: (filePath: RelPath, line: number) => void;
+  /** Asks the host to store new view preferences for the workspace. */
+  readonly savePreferences: (preferences: ViewPreferences) => void;
 }
 
 /**
@@ -60,5 +62,9 @@ export function useGraphChannel(): GraphChannel {
     postToHost({ type: 'navigate', filePath, line });
   }, []);
 
-  return { ...state, refresh, navigate };
+  const savePreferences = useCallback((preferences: ViewPreferences) => {
+    postToHost({ type: 'preferences', preferences });
+  }, []);
+
+  return { ...state, refresh, navigate, savePreferences };
 }

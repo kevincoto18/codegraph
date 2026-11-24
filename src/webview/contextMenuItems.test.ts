@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getContextMenuItems } from './contextMenu';
+import { getContextMenuItems } from './contextMenuItems';
 
 /**
  * Keys of the entries built for a target.

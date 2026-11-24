@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphEdge, GraphNode, GraphSnapshot } from '../shared';
 import {
+  collapseNewContainers,
   getAllContainerIds,
   getAllFileIds,
   getIdsToReveal,
@@ -213,5 +214,24 @@ describe('planExpandAll', () => {
     const plan = planExpandAll(NESTED, null, getAllFileIds(NESTED), 4);
     // 3 files visible; opening app.ts adds 1 function (4), db.ts would exceed.
     expect(plan).toEqual({ collapsedIds: new Set(['src/lib/db.ts']), complete: false });
+  });
+});
+
+describe('collapseNewContainers', () => {
+  it('collapses only the containers that just appeared', () => {
+    const collapsed = new Set(['a.ts']);
+    const next = collapseNewContainers(
+      collapsed,
+      new Set(['a.ts', 'b.ts', 'c.ts']),
+      new Set(['a.ts', 'b.ts']),
+    );
+    expect([...next].sort()).toEqual(['a.ts', 'c.ts']);
+  });
+
+  it('keeps the same set when nothing is new', () => {
+    const collapsed = new Set(['a.ts']);
+    expect(collapseNewContainers(collapsed, new Set(['b.ts']), new Set(['a.ts', 'b.ts']))).toBe(
+      collapsed,
+    );
   });
 });

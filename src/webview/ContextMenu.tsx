@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import type { ContextMenuAction, ContextMenuState } from './contextMenu';
+import type { ContextMenuAction, ContextMenuState } from './contextMenuItems';
 
 /** Props of {@link ContextMenu}. */
 interface ContextMenuProps {

@@ -5,6 +5,8 @@
  * @remarks `postMessage` carries untyped data at runtime, so every receiver
  * must validate a message with the matching guard before using it.
  */
+import type { ViewPreferences } from './preferences';
+import { isViewPreferences } from './preferences';
 import type { GraphPatch, GraphSnapshot, RelPath } from './types';
 import type { ChunkLimits, WireGraphChunk } from './wire';
 import { DEFAULT_CHUNK_LIMITS, encodeSnapshot } from './wire';
@@ -33,7 +35,11 @@ export type HostToWebview =
   | { readonly type: 'status'; readonly state: AnalysisState; readonly message?: string }
   | { readonly type: 'options'; readonly options: ViewOptions }
   /** Focus a file or function (e.g. from "Show Connections"). */
-  | { readonly type: 'focus'; readonly nodeId: string };
+  | { readonly type: 'focus'; readonly nodeId: string }
+  /** Highlight and center the file or function under the editor cursor (editor sync). */
+  | { readonly type: 'reveal'; readonly nodeId: string }
+  /** Stored view preferences of the workspace. */
+  | { readonly type: 'preferences'; readonly preferences: ViewPreferences };
 
 /**
  * One part of a full graph. A graph is sent as a sequence of these messages
@@ -81,7 +87,9 @@ export type WebviewToHost =
   /** Request a full re-scan of the workspace. */
   | { readonly type: 'refresh' }
   /** Performance samples measured in the webview (milliseconds). */
-  | { readonly type: 'metrics'; readonly samples: readonly MetricSample[] };
+  | { readonly type: 'metrics'; readonly samples: readonly MetricSample[] }
+  /** The user changed the view preferences; the host persists them. */
+  | { readonly type: 'preferences'; readonly preferences: ViewPreferences };
 
 /** One performance measurement taken in the webview. */
 export interface MetricSample {
@@ -193,6 +201,8 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHost {
         value.samples.length <= MAX_METRIC_SAMPLES &&
         value.samples.every(isMetricSample)
       );
+    case 'preferences':
+      return isViewPreferences(value.preferences);
     default:
       return false;
   }
@@ -230,7 +240,10 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
         FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode)
       );
     case 'focus':
+    case 'reveal':
       return typeof value.nodeId === 'string' && value.nodeId !== '';
+    case 'preferences':
+      return isViewPreferences(value.preferences);
     case 'status':
       return (
         ANALYSIS_STATES.includes(value.state as AnalysisState) &&

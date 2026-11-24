@@ -32,6 +32,14 @@ export {
   isHostToWebviewMessage,
   isWebviewToHostMessage,
 } from './messages';
+export type { ConnectionFilters, NodeFilters, ViewPreferences } from './preferences';
+export {
+  DEFAULT_VIEW_PREFERENCES,
+  MAX_EXCLUDE_PATTERNS,
+  MAX_HIDDEN_FOLDERS,
+  isViewPreferences,
+  readViewPreferences,
+} from './preferences';
 export type { ChunkLimits, WireFile, WireFunction, WireGraphChunk } from './wire';
 export { DEFAULT_CHUNK_LIMITS, decodeSnapshot, encodeSnapshot } from './wire';
 export { createEdgeId, createFileId, createFunctionId, toPosixPath } from './ids';

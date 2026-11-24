@@ -4,7 +4,7 @@
 import { MarkerType } from '@xyflow/react';
 import type { CSSProperties } from 'react';
 
-import type { FileGraphNode, FunctionGraphNode, GraphSnapshot } from '../shared';
+import type { FileGraphNode, FunctionGraphNode, GraphSnapshot, RelPath } from '../shared';
 import type { RoutedEdge } from './collapse';
 import { routeEdges } from './collapse';
 import type {
@@ -77,12 +77,15 @@ export function getFileNodeHeight(functionCount: number): number {
  * @param snapshot - Graph snapshot.
  * @param collapsedIds - Ids of the collapsed files and folders.
  * @param folderTree - Folder hierarchy, or `null` to show every file at the top level.
+ * @param folderColors - Color of each folder; computed from the snapshot when omitted. Pass
+ *   the colors of the unfiltered graph so hiding files never changes the other colors.
  * @returns Nodes (each parent before its children) and edges.
  */
 export function toFlowElements(
   snapshot: GraphSnapshot,
   collapsedIds: ReadonlySet<string> = NO_COLLAPSED_IDS,
   folderTree: FolderTree | null = null,
+  folderColors?: ReadonlyMap<RelPath, string>,
 ): FlowElements {
   const filesById = new Map<string, FileGraphNode>();
   const functionsById = new Map<string, FunctionGraphNode>();
@@ -94,7 +97,8 @@ export function toFlowElements(
     }
   }
 
-  const colors = assignFolderColors([...filesById.values()].map((file) => file.filePath));
+  const colors =
+    folderColors ?? assignFolderColors([...filesById.values()].map((file) => file.filePath));
   const nodes: CodeGraphFlowNode[] = [];
   /** Visible node standing for each model node id. */
   const visibleIdByNodeId = new Map<string, string>();

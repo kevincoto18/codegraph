@@ -1,24 +1,15 @@
 /**
  * Which kinds of connections are drawn on the canvas.
  */
+import type { ConnectionFilters } from '../shared';
+import { DEFAULT_VIEW_PREFERENCES } from '../shared';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
 
-/** Visibility of each kind of connection. */
-export interface EdgeFilters {
-  /** Imports between files (dashed purple). */
-  readonly imports: boolean;
-  /** Calls between functions of different files (solid blue). */
-  readonly calls: boolean;
-  /** Calls between functions of the same file (only shown when `calls` is on too). */
-  readonly internalCalls: boolean;
-}
+/** Visibility of each kind of connection (persisted with the view preferences). */
+export type EdgeFilters = ConnectionFilters;
 
 /** Initial filters: calls between files only (imports and calls inside a file are opt-in). */
-export const DEFAULT_EDGE_FILTERS: EdgeFilters = {
-  imports: false,
-  calls: true,
-  internalCalls: false,
-};
+export const DEFAULT_EDGE_FILTERS: EdgeFilters = DEFAULT_VIEW_PREFERENCES.connections;
 
 /**
  * Keeps the edges allowed by the filters. Filtering only changes what is

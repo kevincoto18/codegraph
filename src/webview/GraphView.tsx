@@ -7,11 +7,15 @@ import type {
   AnalysisState,
   CollapseMode,
   FolderViewMode,
+  ConnectionFilters,
   GraphSnapshot,
+  NodeFilters,
   RelPath,
+  ViewPreferences,
 } from '../shared';
 import {
   EXPAND_ALL_NODE_BUDGET,
+  collapseNewContainers,
   getAllContainerIds,
   getIdsToReveal,
   getInitialCollapsedIds,
@@ -24,25 +28,26 @@ import { GraphActionsContext } from './graphActions';
 import type { GraphActions } from './graphActions';
 import { GraphCanvas } from './GraphCanvas';
 import { ContextMenu } from './ContextMenu';
-import type { ContextMenuAction, ContextMenuState, ContextMenuTarget } from './contextMenu';
-import { getContextMenuItems } from './contextMenu';
-import type { FocusRequest, GraphChange } from './graphChannel';
+import type { ContextMenuAction, ContextMenuState, ContextMenuTarget } from './contextMenuItems';
+import { getContextMenuItems } from './contextMenuItems';
+import type { FocusRequest, GraphChange, RevealRequest } from './graphChannel';
 import { summarizeGraph } from './graphChannel';
 import { reportMetric } from './metrics';
 import type { MinimapPreference } from './canvasOptions';
 import { shouldShowMinimap } from './canvasOptions';
 import { ClassNameDecorator, joinClassNames } from './decorate';
-import type { EdgeFilters } from './edgeFilters';
-import { DEFAULT_EDGE_FILTERS, filterEdges } from './edgeFilters';
+import { filterEdges } from './edgeFilters';
 import type { FocusDirection } from './focus';
 import { computeFocus, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
 import type { FolderTree } from './folders';
 import { buildFolderTree, isFolderViewEnabled } from './folders';
 import { matchNodes, searchClassOfEdge, searchClassOfNode, withFolderContext } from './search';
 import { Legend } from './Legend';
-import { SettingsPanel } from './SettingsPanel';
+import { Icon } from './icons';
+import { applyNodeFilters, listFolders } from './nodeFilters';
+import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
-import { listFolderColors } from './folderColors';
+import { assignFolderColors, listFolderColors } from './folderColors';
 import type { ViewLayoutInputs, ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
@@ -61,6 +66,14 @@ interface GraphViewProps {
   readonly focusRequest: FocusRequest | null;
   /** Called once a host focus request has been applied. */
   readonly onFocusHandled: (sequence: number) => void;
+  /** Node under the editor cursor to highlight (editor sync), not applied yet. */
+  readonly revealRequest: RevealRequest | null;
+  /** Called once a reveal request has been applied. */
+  readonly onRevealHandled: (sequence: number) => void;
+  /** Filters and editor sync, persisted per workspace by the host. */
+  readonly preferences: ViewPreferences;
+  /** Called with new preferences when the user changes them. */
+  readonly onPreferencesChange: (preferences: ViewPreferences) => void;
   readonly status: AnalysisState;
   readonly errorMessage: string | null;
   /** Requests a full rescan. */
@@ -86,6 +99,12 @@ const NOTICE_MS = 6000;
 
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
+
+/** Lowest zoom used when centering the node under the editor cursor (keeps labels readable). */
+const SYNC_MIN_ZOOM = 0.75;
+
+/** Margin, in screen pixels, a node must keep from the viewport edge to count as visible. */
+const SYNC_VISIBLE_MARGIN = 24;
 
 /** Shared empty set used when no node is highlighted. */
 const NO_IDS: ReadonlySet<string> = new Set();
@@ -150,18 +169,42 @@ export function GraphView(props: GraphViewProps): JSX.Element {
  * @returns The toolbar and canvas.
  */
 function GraphViewContent({
-  snapshot,
+  snapshot: fullSnapshot,
   lastChange,
   collapseMode,
   folderViewMode,
   focusRequest,
   onFocusHandled,
+  revealRequest,
+  onRevealHandled,
+  preferences,
+  onPreferencesChange,
   status,
   errorMessage,
   onRefresh,
   onNavigate,
 }: GraphViewProps): JSX.Element {
-  const { fitView, getZoom } = useReactFlow<CodeGraphFlowNode, CodeGraphFlowEdge>();
+  const { fitView, getZoom, getInternalNode, getViewport, setCenter } = useReactFlow<
+    CodeGraphFlowNode,
+    CodeGraphFlowEdge
+  >();
+  /** Canvas container, to know the size of the visible area. */
+  const canvasRef = useRef<HTMLElement>(null);
+  // Hidden files and functions never reach the layout.
+  const filtered = useMemo(
+    () => applyNodeFilters(fullSnapshot, preferences.nodes),
+    [fullSnapshot, preferences.nodes],
+  );
+  const snapshot = filtered.snapshot;
+  // Colors come from the whole graph, so hiding files never recolors the others.
+  const folderColorMap = useMemo(
+    () =>
+      assignFolderColors(
+        fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+      ),
+    [fullSnapshot],
+  );
+  const edgeFilters = preferences.connections;
   // `auto` is decided once per graph, so live patches never switch the view.
   const [folderView, setFolderView] = useState(() =>
     isFolderViewEnabled(folderViewMode, countFiles(snapshot)),
@@ -184,26 +227,52 @@ function GraphViewContent({
     );
   }
   const [layoutRequest, setLayoutRequest] = useState(0);
+  // A filter change lays the graph out again; files shown again start collapsed like new ones.
+  const [appliedNodeFilters, setAppliedNodeFilters] = useState({
+    filters: preferences.nodes,
+    snapshot,
+    folderTree,
+  });
+  if (appliedNodeFilters.filters !== preferences.nodes) {
+    setAppliedNodeFilters({ filters: preferences.nodes, snapshot, folderTree });
+    setLayoutRequest((request) => request + 1);
+    setCollapsedIds((collapsed) =>
+      collapseNewContainers(
+        collapsed,
+        getInitialCollapsedIds(snapshot, collapseMode, folderTree),
+        getAllContainerIds(appliedNodeFilters.snapshot, appliedNodeFilters.folderTree),
+      ),
+    );
+  }
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const [minimapPreference, setMinimapPreference] = useState<MinimapPreference>('auto');
-  const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(DEFAULT_EDGE_FILTERS);
   const [notice, setNotice] = useState<string | null>(null);
   const [folderColorsEnabled, setFolderColorsEnabled] = useState(true);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [focusDepth, setFocusDepth] = useState(1);
   const [focusDirection, setFocusDirection] = useState<FocusDirection>('both');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  /** Node highlighted because the editor cursor is on it (editor sync). */
+  const [syncedId, setSyncedId] = useState<string | null>(null);
   // Decorators reuse unchanged node/edge objects so React Flow skips re-rendering them.
   const [nodeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowNode>());
   const [edgeDecorator] = useState(() => new ClassNameDecorator<CodeGraphFlowEdge>());
   const [expiredChangeVersion, setExpiredChangeVersion] = useState(0);
   /** Viewport fit to perform once the next layout has been rendered. */
   const pendingFitRef = useRef<FitViewOptions<CodeGraphFlowNode> | null>(null);
+  /** Node to center once the next layout has been rendered (editor sync). */
+  const pendingCenterRef = useRef<string | null>(null);
 
   // Recompute the canvas when its inputs change (adjusting state during render):
   // live patches keep file positions; collapse changes and re-layout do not.
-  const layoutInputs: ViewLayoutInputs = { snapshot, collapsedIds, folderTree, layoutRequest };
+  const layoutInputs: ViewLayoutInputs = {
+    snapshot,
+    collapsedIds,
+    folderTree,
+    layoutRequest,
+    folderColors: folderColorMap,
+  };
   const [layoutState, setLayoutState] = useState<MeasuredLayout>(() =>
     measureLayout(null, layoutInputs),
   );
@@ -222,18 +291,20 @@ function GraphViewContent({
     () => withFolderContext(matchNodes(snapshot, debouncedQuery), folderTree),
     [snapshot, debouncedQuery, folderTree],
   );
-  const focus = useMemo(
-    () =>
-      focusId === null
-        ? null
-        : computeFocus(snapshot, focusId, {
-            depth: focusDepth,
-            direction: focusDirection,
-            imports: edgeFilters.imports,
-            calls: edgeFilters.calls,
-          }),
-    [snapshot, focusId, focusDepth, focusDirection, edgeFilters.imports, edgeFilters.calls],
-  );
+  const focus = useMemo(() => {
+    if (focusId === null) {
+      return null;
+    }
+    const result = computeFocus(snapshot, focusId, {
+      depth: focusDepth,
+      direction: focusDirection,
+      imports: edgeFilters.imports,
+      calls: edgeFilters.calls,
+    });
+    // A focused node hidden by a filter ends focus mode.
+    return result.nodeIds.size === 0 ? null : result;
+  }, [snapshot, focusId, focusDepth, focusDirection, edgeFilters.imports, edgeFilters.calls]);
+  const activeFocusId = focus === null ? null : focusId;
   const focusedIds = useMemo(
     () => (focus === null ? null : getFocusedDisplayIds(current.nodes, focus, folderTree)),
     [focus, current.nodes, folderTree],
@@ -245,10 +316,19 @@ function GraphViewContent({
           searchClassOfNode(node.id, search),
           highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
           focusedIds === null || focusedIds.has(node.id) ? undefined : 'cg-focus-dimmed',
-          node.id === focusId ? 'cg-focus-target' : undefined,
+          node.id === activeFocusId ? 'cg-focus-target' : undefined,
+          node.id === syncedId ? 'cg-synced' : undefined,
         ),
       ),
-    [nodeDecorator, current.nodes, search, highlightedChangeIds, focusedIds, focusId],
+    [
+      nodeDecorator,
+      current.nodes,
+      search,
+      highlightedChangeIds,
+      focusedIds,
+      activeFocusId,
+      syncedId,
+    ],
   );
   const visibleEdges = useMemo(
     () => filterEdges(current.edges, current.nodes, edgeFilters),
@@ -267,13 +347,24 @@ function GraphViewContent({
     [edgeDecorator, visibleEdges, search, focusedIds],
   );
   const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
-  const summary = useMemo(() => summarizeGraph(snapshot), [snapshot]);
+  const summary = useMemo(() => summarizeGraph(fullSnapshot), [fullSnapshot]);
+  const folders = useMemo(
+    () =>
+      listFolders(
+        fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+      ),
+    [fullSnapshot],
+  );
   const folderColorEntries = useMemo(
     () =>
       listFolderColors(
-        snapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+        fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
       ),
-    [snapshot],
+    [fullSnapshot],
+  );
+  const folderColorOf = useMemo(
+    () => new Map(folderColorEntries.map((entry) => [entry.folder, entry.color])),
+    [folderColorEntries],
   );
 
   // Report each recomputed layout once (dragging nodes does not recompute it).
@@ -297,20 +388,62 @@ function GraphViewContent({
     };
   }, [mountedAt]);
 
+  /**
+   * Centers a node when it is not fully visible, zooming in up to a readable
+   * level but never zooming out.
+   *
+   * @param nodeId - Displayed node to bring into view.
+   */
+  const centerOnNode = useCallback(
+    (nodeId: string) => {
+      const node = getInternalNode(nodeId);
+      if (node === undefined) {
+        return;
+      }
+      const { x, y } = node.internals.positionAbsolute;
+      const width = node.measured.width ?? 0;
+      const height = node.measured.height ?? 0;
+      const viewport = getViewport();
+      const paneWidth = canvasRef.current?.clientWidth ?? window.innerWidth;
+      const paneHeight = canvasRef.current?.clientHeight ?? window.innerHeight;
+      const left = x * viewport.zoom + viewport.x;
+      const top = y * viewport.zoom + viewport.y;
+      const visible =
+        viewport.zoom >= SYNC_MIN_ZOOM &&
+        left >= SYNC_VISIBLE_MARGIN &&
+        top >= SYNC_VISIBLE_MARGIN &&
+        left + width * viewport.zoom <= paneWidth - SYNC_VISIBLE_MARGIN &&
+        top + height * viewport.zoom <= paneHeight - SYNC_VISIBLE_MARGIN;
+      if (!visible) {
+        void setCenter(x + width / 2, y + height / 2, {
+          zoom: Math.max(viewport.zoom, SYNC_MIN_ZOOM),
+          duration: VIEWPORT_ANIMATION_MS,
+        });
+      }
+    },
+    [getInternalNode, getViewport, setCenter],
+  );
+
   useEffect(() => {
     const request = pendingFitRef.current;
-    if (request === null) {
+    const centerId = pendingCenterRef.current;
+    if (request === null && centerId === null) {
       return undefined;
     }
     pendingFitRef.current = null;
-    // Wait one frame so React Flow has synced the new node positions.
+    pendingCenterRef.current = null;
+    // Wait one frame so React Flow has synced (and measured) the new node positions.
     const frame = requestAnimationFrame(() => {
-      void fitView(request);
+      if (request !== null) {
+        void fitView(request);
+      } else if (centerId !== null) {
+        centerOnNode(centerId);
+      }
     });
     return () => {
       cancelAnimationFrame(frame);
     };
-  }, [current, fitView]);
+  }, [current, fitView, centerOnNode]);
 
   useEffect(() => {
     if (lastChange === null || lastChange.version <= expiredChangeVersion) {
@@ -471,12 +604,12 @@ function GraphViewContent({
         toggle(node.id);
         return;
       }
-      if (focusId !== null && node.id !== focusId) {
+      if (activeFocusId !== null && node.id !== activeFocusId) {
         enterFocus(node.id);
       }
       onNavigate(node.data.filePath, node.data.line);
     },
-    [onNavigate, toggle, focusId, enterFocus],
+    [onNavigate, toggle, activeFocusId, enterFocus],
   );
 
   const handleNodeContextMenu = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
@@ -486,19 +619,19 @@ function GraphViewContent({
         node.type === 'folder'
           ? { kind: 'folder', nodeId: node.id }
           : { kind: 'node', nodeId: node.id, nodeType: node.type };
-      const items = getContextMenuItems(target, focusId !== null);
+      const items = getContextMenuItems(target, activeFocusId !== null);
       setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
     },
-    [focusId],
+    [activeFocusId],
   );
 
   const handlePaneContextMenu = useCallback(
     (event: MouseEvent | ReactMouseEvent) => {
       event.preventDefault();
-      const items = getContextMenuItems({ kind: 'pane' }, focusId !== null);
+      const items = getContextMenuItems({ kind: 'pane' }, activeFocusId !== null);
       setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
     },
-    [focusId],
+    [activeFocusId],
   );
 
   const closeContextMenu = useCallback(() => {
@@ -550,6 +683,49 @@ function GraphViewContent({
     enterFocus(focusRequest.nodeId);
   }, [focusRequest, onFocusHandled, enterFocus]);
 
+  // Follow the editor cursor (editor sync): highlight the node and bring it into view.
+  useEffect(() => {
+    if (revealRequest === null) {
+      return;
+    }
+    onRevealHandled(revealRequest.sequence);
+    const { nodeId } = revealRequest;
+    if (!snapshot.nodes.some((node) => node.id === nodeId)) {
+      return;
+    }
+    // The request comes from the extension host (an external system) and is applied once.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSyncedId(nodeId);
+    if (activeFocusId !== null) {
+      if (nodeId !== activeFocusId) {
+        enterFocus(nodeId);
+      }
+      return;
+    }
+    const toExpand = [...getIdsToReveal(snapshot, folderTree, [nodeId])].filter((id) =>
+      collapsedIds.has(id),
+    );
+    if (toExpand.length === 0) {
+      centerOnNode(nodeId);
+      return;
+    }
+    pendingCenterRef.current = nodeId;
+    setCollapsedIds((collapsed) => {
+      const next = new Set(collapsed);
+      toExpand.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, [
+    revealRequest,
+    onRevealHandled,
+    snapshot,
+    activeFocusId,
+    enterFocus,
+    folderTree,
+    collapsedIds,
+    centerOnNode,
+  ]);
+
   // Escape leaves focus mode (unless typing in a field).
   useEffect(() => {
     if (focusId === null) {
@@ -572,18 +748,35 @@ function GraphViewContent({
     };
   }, [focusId]);
 
-  const focusLabel = useMemo(() => {
-    const node = focusId === null ? undefined : snapshot.nodes.find((item) => item.id === focusId);
-    return node === undefined
-      ? null
-      : node.kind === 'file'
-        ? node.filePath
-        : `${node.label} · ${node.filePath}`;
-  }, [focusId, snapshot]);
+  const focusNode = useMemo(
+    () =>
+      activeFocusId === null ? undefined : snapshot.nodes.find((item) => item.id === activeFocusId),
+    [activeFocusId, snapshot],
+  );
 
-  const toggleEdgeFilter = useCallback((key: keyof EdgeFilters) => {
-    setEdgeFilters((filters) => ({ ...filters, [key]: !filters[key] }));
-  }, []);
+  const setConnections = useCallback(
+    (connections: ConnectionFilters) => {
+      onPreferencesChange({ ...preferences, connections });
+    },
+    [onPreferencesChange, preferences],
+  );
+
+  const setNodeFilters = useCallback(
+    (nodes: NodeFilters) => {
+      onPreferencesChange({ ...preferences, nodes });
+    },
+    [onPreferencesChange, preferences],
+  );
+
+  const setEditorSync = useCallback(
+    (editorSync: boolean) => {
+      if (!editorSync) {
+        setSyncedId(null);
+      }
+      onPreferencesChange({ ...preferences, editorSync });
+    },
+    [onPreferencesChange, preferences],
+  );
 
   const toggleFolderColors = useCallback(() => {
     setFolderColorsEnabled((enabled) => !enabled);
@@ -596,29 +789,46 @@ function GraphViewContent({
   const actions = useMemo<GraphActions>(() => ({ toggle }), [toggle]);
 
   const panel = (
-    <SettingsPanel
-      query={query}
-      matchCount={search === null ? null : search.matchedIds.size}
-      onQueryChange={setQuery}
-      onSearchSubmit={zoomToMatches}
-      edgeFilters={edgeFilters}
-      onToggleEdgeFilter={toggleEdgeFilter}
-      onExpandLevel={expandLevel}
-      onExpandAll={expandAll}
-      onCollapseAll={collapseAll}
-      onRelayout={relayout}
-      minimapShown={showMinimap}
-      onToggleMinimap={toggleMinimap}
-      folderColorsEnabled={folderColorsEnabled}
-      onToggleFolderColors={toggleFolderColors}
-      folderColors={folderColorEntries}
-      focusLabel={focusLabel}
-      focusDepth={focusDepth}
-      focusDirection={focusDirection}
-      onFocusSelected={focusSelected}
-      onExitFocus={exitFocus}
-      onFocusDepthChange={setFocusDepth}
-      onFocusDirectionChange={setFocusDirection}
+    <Sidebar
+      search={{
+        query,
+        matchCount: search === null ? null : search.matchedIds.size,
+        onQueryChange: setQuery,
+        onSubmit: zoomToMatches,
+      }}
+      connections={edgeFilters}
+      onConnectionsChange={setConnections}
+      filters={{
+        filters: preferences.nodes,
+        onChange: setNodeFilters,
+        folders,
+        folderColors: folderColorOf,
+        hiddenFiles: filtered.hiddenFiles,
+        hiddenFunctions: filtered.hiddenFunctions,
+      }}
+      focus={{
+        label: focusNode === undefined ? null : focusNode.label,
+        detail: focusNode === undefined || focusNode.kind === 'file' ? null : focusNode.filePath,
+        depth: focusDepth,
+        direction: focusDirection,
+        onFocusSelected: focusSelected,
+        onExit: exitFocus,
+        onDepthChange: setFocusDepth,
+        onDirectionChange: setFocusDirection,
+      }}
+      view={{
+        onExpandLevel: expandLevel,
+        onExpandAll: expandAll,
+        onCollapseAll: collapseAll,
+        onRelayout: relayout,
+        minimapShown: showMinimap,
+        onToggleMinimap: toggleMinimap,
+        folderColorsEnabled,
+        onToggleFolderColors: toggleFolderColors,
+        folderColors: folderColorEntries,
+        editorSync: preferences.editorSync,
+        onEditorSyncChange: setEditorSync,
+      }}
     />
   );
 
@@ -631,8 +841,24 @@ function GraphViewContent({
         onRefresh={onRefresh}
       >
         <Legend />
+        <button
+          type="button"
+          className="cg-toolbar__button cg-toolbar__button--icon"
+          aria-pressed={preferences.editorSync}
+          title={
+            preferences.editorSync
+              ? 'Following the editor: the graph highlights the file or function under the cursor. Click to stop.'
+              : 'Follow the editor: highlight the file or function under the cursor'
+          }
+          onClick={() => {
+            setEditorSync(!preferences.editorSync);
+          }}
+        >
+          <Icon name="sync" size={14} />
+          Sync
+        </button>
       </StatusBar>
-      <main className="cg-canvas">
+      <main className="cg-canvas" ref={canvasRef}>
         {notice !== null && (
           <div className="cg-notice" role="status">
             {notice}

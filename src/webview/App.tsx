@@ -1,6 +1,8 @@
 import type { JSX } from 'react';
 import { useCallback, useState } from 'react';
 
+import type { ViewPreferences } from '../shared';
+import { DEFAULT_VIEW_PREFERENCES } from '../shared';
 import { GraphView } from './GraphView';
 import { StatusBar } from './StatusBar';
 import { useGraphChannel } from './useGraphChannel';
@@ -21,15 +23,43 @@ export function App(): JSX.Element {
     status,
     errorMessage,
     focusRequest,
+    revealRequest,
+    preferences: storedPreferences,
     refresh,
     navigate,
+    savePreferences,
   } = useGraphChannel();
+  // Edited locally for instant feedback; the host stores every change and
+  // sends the stored copy on (re)connection.
+  const [preferences, setPreferences] = useState<ViewPreferences>(
+    storedPreferences ?? DEFAULT_VIEW_PREFERENCES,
+  );
+  const [adoptedPreferences, setAdoptedPreferences] = useState(storedPreferences);
+  if (storedPreferences !== adoptedPreferences) {
+    setAdoptedPreferences(storedPreferences);
+    if (storedPreferences !== null) {
+      setPreferences(storedPreferences);
+    }
+  }
+  const changePreferences = useCallback(
+    (next: ViewPreferences) => {
+      setPreferences(next);
+      savePreferences(next);
+    },
+    [savePreferences],
+  );
   // Survives remounts of the view (new snapshot), so a focus is applied once.
   const [handledFocus, setHandledFocus] = useState(0);
   const pendingFocus =
     focusRequest !== null && focusRequest.sequence > handledFocus ? focusRequest : null;
   const markFocusHandled = useCallback((sequence: number) => {
     setHandledFocus((handled) => Math.max(handled, sequence));
+  }, []);
+  const [handledReveal, setHandledReveal] = useState(0);
+  const pendingReveal =
+    revealRequest !== null && revealRequest.sequence > handledReveal ? revealRequest : null;
+  const markRevealHandled = useCallback((sequence: number) => {
+    setHandledReveal((handled) => Math.max(handled, sequence));
   }, []);
 
   return (
@@ -57,6 +87,10 @@ export function App(): JSX.Element {
           folderViewMode={options.folderViewMode}
           focusRequest={pendingFocus}
           onFocusHandled={markFocusHandled}
+          revealRequest={pendingReveal}
+          onRevealHandled={markRevealHandled}
+          preferences={preferences}
+          onPreferencesChange={changePreferences}
           status={status}
           errorMessage={errorMessage}
           onRefresh={refresh}

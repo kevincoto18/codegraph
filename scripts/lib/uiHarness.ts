@@ -26,7 +26,12 @@ const THEME_VARIABLES = `
   --vscode-button-secondaryBackground: #313131; --vscode-button-secondaryForeground: #cccccc;
   --vscode-input-background: #313131; --vscode-input-foreground: #cccccc;
   --vscode-editorLineNumber-foreground: #6e7681; --vscode-charts-blue: #3794ff;
-  --vscode-charts-purple: #b180d7; --vscode-charts-green: #89d185; --vscode-charts-yellow: #cca700;`;
+  --vscode-charts-purple: #b180d7; --vscode-charts-green: #89d185; --vscode-charts-yellow: #cca700;
+  --vscode-button-background: #0078d4; --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #026ec1; --vscode-widget-border: #313131;
+  --vscode-input-border: #3c3c3c; --vscode-textLink-foreground: #4daafc;
+  --vscode-list-activeSelectionBackground: #04395e; --vscode-icon-foreground: #cccccc;
+  --vscode-editorCursor-foreground: #aeafad;`;
 
 /** Page script: fake `acquireVsCodeApi` plus in-page measurement helpers. */
 const HARNESS_SCRIPT = `
@@ -54,8 +59,15 @@ const HARNESS_SCRIPT = `
     expanded: () => !!document.querySelector('.react-flow__node-function'),
     any: () => true,
   };
+  // Opens a sidebar tab (rail icon) unless it is already open.
+  const openTab = async (title) => {
+    const tab = document.querySelector('.cg-rail__button[aria-label="' + title + '"]');
+    if (tab && tab.getAttribute('aria-pressed') !== 'true') { tab.click(); await frame(); await frame(); }
+  };
   window.__clickAndWait = async (label, predicate, timeoutMs) => {
-    const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === label);
+    const find = () => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === label);
+    if (!find()) await openTab('View');
+    const button = find();
     const startedAt = performance.now();
     button.click();
     while (!predicates[predicate]()) {
@@ -87,6 +99,7 @@ const HARNESS_SCRIPT = `
     return performance.now() - startedAt;
   };
   window.__typeLatency = async (text, timeoutMs) => {
+    await openTab('Search');
     const input = document.querySelector('.cg-search__input');
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     const latencies = [];

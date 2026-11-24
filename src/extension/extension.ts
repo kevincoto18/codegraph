@@ -32,10 +32,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const logger = vscode.window.createOutputChannel(LOG_CHANNEL_NAME, { log: true });
   const version: unknown = (context.extension.packageJSON as { version?: unknown }).version;
   const extensionVersion = typeof version === 'string' ? version : '0';
-  const controller = new CodeGraphController(context.extensionUri, logger, {
-    storageUri: context.storageUri,
-    extensionVersion,
-  });
+  const controller = new CodeGraphController(
+    context.extensionUri,
+    logger,
+    { storageUri: context.storageUri, extensionVersion },
+    context.workspaceState,
+  );
   activeController = controller;
 
   context.subscriptions.push(

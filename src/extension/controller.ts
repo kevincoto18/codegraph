@@ -11,10 +11,13 @@ import type {
   HostToWebview,
   MetricSample,
   RelPath,
+  ViewPreferences,
   WebviewToHost,
 } from '../shared';
-import { createGraphInitMessages } from '../shared';
+import { createGraphInitMessages, readViewPreferences } from '../shared';
 import { FileCacheStore, FileGraphStore } from './cacheStore';
+import type { EditorLocation } from './editorSync';
+import { EditorSyncScheduler } from './editorSync';
 import { resolveFocusTarget } from './focusTarget';
 import type { GraphService, ScanProgressListener } from './graphService';
 import { openFileAtLine } from './navigation';
@@ -47,6 +50,9 @@ const CACHE_FILE_NAME = 'parse-cache.bin';
 
 /** File name of the last graph inside the storage folder. */
 const GRAPH_FILE_NAME = 'graph.bin';
+
+/** Key of the view preferences in the workspace state. */
+const PREFERENCES_KEY = 'codegraph.viewPreferences';
 
 /** Number of progress steps reported during a scan (one every 2%). */
 const PROGRESS_STEPS = 50;
@@ -83,6 +89,16 @@ export class CodeGraphController implements vscode.Disposable {
     vscode.workspace.getConfiguration(SETTINGS_SECTION),
   );
   private readonly configurationListener: vscode.Disposable;
+  /** View preferences of the workspace (filters, editor sync). */
+  private preferences: ViewPreferences;
+  /** Listeners of the active editor and its cursor (editor sync). */
+  private readonly editorListeners: vscode.Disposable[];
+  /** Debounces cursor moves before they are mirrored in the graph. */
+  private readonly editorSync = new EditorSyncScheduler<vscode.Uri>((location) => {
+    void this.revealInGraph(location);
+  });
+  /** Last node revealed by the editor sync, to skip repeated messages. */
+  private lastRevealedId: string | undefined;
 
   /**
    * Creates the controller and starts tracking settings changes.
@@ -90,17 +106,95 @@ export class CodeGraphController implements vscode.Disposable {
    * @param extensionUri - Root URI of the extension (to locate the webview bundle).
    * @param logger - Extension log channel.
    * @param cacheLocation - Where the parse cache is persisted.
+   * @param workspaceState - Per-workspace storage of the view preferences.
    */
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly logger: vscode.LogOutputChannel,
     private readonly cacheLocation: CacheLocation,
+    private readonly workspaceState: vscode.Memento,
   ) {
+    this.preferences = readViewPreferences(workspaceState.get(PREFERENCES_KEY));
     this.configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(SETTINGS_SECTION)) {
         void this.handleSettingsChanged();
       }
     });
+    this.editorListeners = [
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        this.followEditor(editor);
+      }),
+      vscode.window.onDidChangeTextEditorSelection((event) => {
+        this.followEditor(event.textEditor);
+      }),
+    ];
+  }
+
+  /**
+   * Schedules mirroring the cursor of an editor in the graph, when editor
+   * sync is on and the graph is open.
+   *
+   * @param editor - Editor whose cursor moved or that became active.
+   */
+  private followEditor(editor: vscode.TextEditor | undefined): void {
+    if (!this.preferences.editorSync || this.panel === undefined || editor === undefined) {
+      return;
+    }
+    this.editorSync.schedule({
+      uri: editor.document.uri,
+      line: editor.selection.active.line + 1,
+    });
+  }
+
+  /**
+   * Starts following the active editor from scratch (graph shown again or
+   * sync just turned on).
+   */
+  private resyncEditor(): void {
+    this.lastRevealedId = undefined;
+    this.followEditor(vscode.window.activeTextEditor);
+  }
+
+  /**
+   * Highlights the file or function under the cursor in the graph.
+   *
+   * @param location - Cursor location in the editor.
+   */
+  private async revealInGraph(location: EditorLocation<vscode.Uri>): Promise<void> {
+    if (!this.preferences.editorSync || !this.graphShown || this.panel === undefined) {
+      return;
+    }
+    const session = this.session;
+    if (session?.service.hasScanned !== true) {
+      return;
+    }
+    const filePath = session.reader.toRelPath(location.uri);
+    const nodeId =
+      filePath === null
+        ? null
+        : resolveFocusTarget(session.service.getSnapshot(), filePath, location.line);
+    if (nodeId === null || nodeId === this.lastRevealedId) {
+      return;
+    }
+    this.lastRevealedId = nodeId;
+    await this.post({ type: 'reveal', nodeId });
+  }
+
+  /**
+   * Stores the preferences chosen in the webview.
+   *
+   * @param preferences - New preferences.
+   */
+  private async savePreferences(preferences: ViewPreferences): Promise<void> {
+    const syncTurnedOn = preferences.editorSync && !this.preferences.editorSync;
+    this.preferences = preferences;
+    if (!preferences.editorSync) {
+      this.editorSync.cancel();
+    }
+    await this.workspaceState.update(PREFERENCES_KEY, preferences);
+    if (syncTurnedOn) {
+      this.resyncEditor();
+    }
   }
 
   /**
@@ -184,6 +278,10 @@ export class CodeGraphController implements vscode.Disposable {
   /** Closes the panel and releases resources. */
   public dispose(): void {
     this.configurationListener.dispose();
+    this.editorListeners.forEach((listener) => {
+      listener.dispose();
+    });
+    this.editorSync.cancel();
     this.panel?.dispose();
     this.panel = undefined;
     void this.closeSession();
@@ -317,6 +415,7 @@ export class CodeGraphController implements vscode.Disposable {
   private async handleMessage(message: WebviewToHost): Promise<void> {
     switch (message.type) {
       case 'ready':
+        await this.post({ type: 'preferences', preferences: this.preferences });
         await this.post({ type: 'options', options: toViewOptions(this.settings) });
         await this.sendGraph(false);
         return;
@@ -328,6 +427,9 @@ export class CodeGraphController implements vscode.Disposable {
         return;
       case 'metrics':
         this.recordWebviewMetrics(message.samples);
+        return;
+      case 'preferences':
+        await this.savePreferences(message.preferences);
         return;
     }
   }
@@ -347,6 +449,7 @@ export class CodeGraphController implements vscode.Disposable {
       await this.postGraph(service.getSnapshot());
       this.graphShown = true;
       await this.flushFocus();
+      this.resyncEditor();
       return;
     }
 
@@ -378,6 +481,7 @@ export class CodeGraphController implements vscode.Disposable {
       );
       this.graphShown = true;
       await this.flushFocus();
+      this.resyncEditor();
     } catch (error) {
       const message = describeError(error);
       this.logger.error(`Graph build failed: ${message}`);

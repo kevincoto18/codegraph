@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import type { JSX, Ref } from 'react';
 
 import { formatMatchCount } from './search';
 
@@ -12,6 +12,8 @@ interface SearchBoxProps {
   readonly onChange: (value: string) => void;
   /** Called when the user presses Enter (zoom to matches). */
   readonly onSubmit: () => void;
+  /** Ref to the input, e.g. to focus it. */
+  readonly inputRef?: Ref<HTMLInputElement>;
 }
 
 /**
@@ -21,10 +23,17 @@ interface SearchBoxProps {
  * @param props - Query, match count and callbacks.
  * @returns The search box element.
  */
-export function SearchBox({ value, matchCount, onChange, onSubmit }: SearchBoxProps): JSX.Element {
+export function SearchBox({
+  value,
+  matchCount,
+  onChange,
+  onSubmit,
+  inputRef,
+}: SearchBoxProps): JSX.Element {
   return (
     <div className="cg-search">
       <input
+        ref={inputRef}
         type="search"
         className="cg-search__input"
         placeholder="Search files or functions…"

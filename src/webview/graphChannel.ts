@@ -1,7 +1,13 @@
 /**
  * Pure state management for messages received from the extension host.
  */
-import type { AnalysisState, GraphSnapshot, HostToWebview, ViewOptions } from '../shared';
+import type {
+  AnalysisState,
+  GraphSnapshot,
+  HostToWebview,
+  ViewOptions,
+  ViewPreferences,
+} from '../shared';
 import { applyPatch, classifyPatch, getChangedNodeIds } from './patch';
 
 /** Nodes touched by the latest applied patch (for visual feedback). */
@@ -39,6 +45,10 @@ export interface GraphChannelState {
   readonly options: ViewOptions;
   /** Latest focus asked by the host, numbered so repeated requests are distinct. */
   readonly focusRequest: FocusRequest | null;
+  /** Latest node to highlight because the editor cursor is on it (editor sync). */
+  readonly revealRequest: RevealRequest | null;
+  /** Stored view preferences, or `null` until the host sends them. */
+  readonly preferences: ViewPreferences | null;
 }
 
 /** A focus asked by the host. */
@@ -47,6 +57,9 @@ export interface FocusRequest {
   /** Increases with every request. */
   readonly sequence: number;
 }
+
+/** A node to highlight because the editor cursor is on it; numbered like {@link FocusRequest}. */
+export type RevealRequest = FocusRequest;
 
 /** Counters displayed in the status bar. */
 export interface GraphSummary {
@@ -66,6 +79,8 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   lastChange: null,
   options: { collapseMode: 'always', folderViewMode: 'auto' },
   focusRequest: null,
+  revealRequest: null,
+  preferences: null,
 };
 
 /** Fallback text when the host reports an error without a message. */
@@ -103,6 +118,16 @@ export function reduceHostMessage(
           sequence: (state.focusRequest?.sequence ?? 0) + 1,
         },
       };
+    case 'reveal':
+      return {
+        ...state,
+        revealRequest: {
+          nodeId: message.nodeId,
+          sequence: (state.revealRequest?.sequence ?? 0) + 1,
+        },
+      };
+    case 'preferences':
+      return { ...state, preferences: message.preferences };
     case 'status':
       return {
         ...state,

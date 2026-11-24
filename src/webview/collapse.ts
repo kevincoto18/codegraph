@@ -314,3 +314,22 @@ export function routeEdges(
   }
   return [...routed.values()];
 }
+
+/**
+ * Applies the initial collapse state to containers that just appeared (e.g.
+ * files shown again after a filter change), keeping the user's choices for
+ * the containers that were already there.
+ *
+ * @param collapsedIds - Containers collapsed now.
+ * @param initialIds - Containers collapsed initially in the new graph.
+ * @param knownIds - Containers that existed before the change.
+ * @returns The collapsed containers to use (the same set when nothing is new).
+ */
+export function collapseNewContainers(
+  collapsedIds: Set<string>,
+  initialIds: ReadonlySet<string>,
+  knownIds: ReadonlySet<string>,
+): Set<string> {
+  const added = [...initialIds].filter((id) => !knownIds.has(id) && !collapsedIds.has(id));
+  return added.length === 0 ? collapsedIds : new Set([...collapsedIds, ...added]);
+}

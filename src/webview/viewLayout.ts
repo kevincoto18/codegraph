@@ -17,6 +17,8 @@ export interface ViewLayoutState {
   readonly folderTree: FolderTree | null;
   /** Incremented to request a full re-layout. */
   readonly layoutRequest: number;
+  /** Folder colors the nodes were drawn with. */
+  readonly folderColors?: ReadonlyMap<string, string>;
   /** How the nodes were positioned: full layered layout or incremental merge. */
   readonly mode: 'full' | 'incremental';
   readonly nodes: CodeGraphFlowNode[];
@@ -29,6 +31,8 @@ export interface ViewLayoutInputs {
   readonly collapsedIds: ReadonlySet<string>;
   readonly folderTree: FolderTree | null;
   readonly layoutRequest: number;
+  /** Color of each folder, from the unfiltered graph (stable when filters change). */
+  readonly folderColors?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -43,7 +47,8 @@ export function isViewLayoutCurrent(state: ViewLayoutState, inputs: ViewLayoutIn
     state.snapshot === inputs.snapshot &&
     state.collapsedIds === inputs.collapsedIds &&
     state.folderTree === inputs.folderTree &&
-    state.layoutRequest === inputs.layoutRequest
+    state.layoutRequest === inputs.layoutRequest &&
+    state.folderColors === inputs.folderColors
   );
 }
 
@@ -62,7 +67,7 @@ export function computeViewLayout(
   previous: ViewLayoutState | null,
   inputs: ViewLayoutInputs,
 ): ViewLayoutState {
-  const { snapshot, collapsedIds, folderTree, layoutRequest } = inputs;
+  const { snapshot, collapsedIds, folderTree, layoutRequest, folderColors } = inputs;
   const isIncremental =
     previous !== null &&
     previous.collapsedIds === collapsedIds &&
@@ -70,7 +75,7 @@ export function computeViewLayout(
     (previous.folderTree === null) === (folderTree === null);
 
   if (isIncremental) {
-    const elements = toFlowElements(snapshot, collapsedIds, folderTree);
+    const elements = toFlowElements(snapshot, collapsedIds, folderTree, folderColors);
     return {
       ...inputs,
       mode: 'incremental',
@@ -79,6 +84,6 @@ export function computeViewLayout(
     };
   }
 
-  const { nodes, edges } = buildFlowGraph(snapshot, { collapsedIds, folderTree });
+  const { nodes, edges } = buildFlowGraph(snapshot, { collapsedIds, folderTree, folderColors });
   return { ...inputs, mode: 'full', nodes, edges };
 }
