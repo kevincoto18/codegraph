@@ -1,17 +1,51 @@
 {
   "name": "codegraph",
-  "displayName": "CodeGraph",
+  "displayName": "CodeGraph Map",
   "description": "Interactive graph of files, functions, imports and calls for TypeScript, JavaScript, Python, Java, C# and Go projects.",
-  "version": "0.0.1",
-  "publisher": "kevin",
+  "version": "0.1.0",
+  "publisher": "kcoto18",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "author": {
+    "name": "Kevin Coto"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1B1F27",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kevincoto18/codegraph.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kevincoto18/codegraph/issues"
+  },
+  "homepage": "https://github.com/kevincoto18/codegraph#readme",
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
     "Visualization",
     "Other"
+  ],
+  "keywords": [
+    "graph",
+    "call graph",
+    "dependency graph",
+    "code map",
+    "visualization",
+    "architecture",
+    "navigation",
+    "imports",
+    "functions",
+    "typescript",
+    "javascript",
+    "python",
+    "java",
+    "csharp",
+    "go",
+    "react flow"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -116,6 +150,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "npm run build && node scripts/build-integration-tests.mjs && vscode-test",
+    "package": "vsce package",
     "bench": "node scripts/run.mjs scripts/bench.ts",
     "bench:baseline": "node scripts/run.mjs scripts/bench.ts --save-baseline",
     "bench:check": "node scripts/run.mjs scripts/bench.ts --check",
@@ -139,6 +174,7 @@
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/tree-sitter-wasm": "^0.3.1",
+    "@vscode/vsce": "^4.1.1",
     "@xyflow/react": "^13.0.2",
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",

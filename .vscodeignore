@@ -18,3 +18,8 @@ docs/**
 dist-test/**
 .vscode-test/**
 .vscode-test.mjs
+media/*.gif
+media/icon.svg
+.github/**
+CONTRIBUTING.md
+*.log

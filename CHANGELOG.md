@@ -1,0 +1,34 @@
+# Changelog
+
+All notable changes to CodeGraph Map are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [0.1.0] - 2026-11-24
+
+First public release.
+
+### Added
+
+- Interactive graph of **files, functions, imports and calls**, built by static
+  analysis (no language server, no AI).
+- Languages: **TypeScript / JavaScript**, **Python**, **Java**, **C#** and **Go**.
+  Java, C# and Go calls such as `repo.save()` are resolved by type.
+- **Live updates**: saves, external edits, created and deleted files update the
+  graph incrementally; a persistent cache makes reopening instant.
+- **Folder view** for large projects, collapse and expand per file or folder,
+  merged `×n` edges.
+- **Fuzzy search** over files and functions, with keyboard navigation.
+- **Focus mode**: show a node and its neighbors (1–3 hops, uses / used by), from
+  a double-click or the context menu.
+- **Show Connections** from the Explorer or the editor, opening the graph beside
+  the code.
+- **Filters**: hide tests, only exported functions, hidden folders and exclude
+  patterns, saved per workspace.
+- **Follow the editor**: the graph highlights and centers the code under the
+  cursor.
+- **Multi-root workspaces**: every folder in one graph.
+- The panel **reopens after a window reload** with the same view.
+- Respects `files.exclude` and `.gitignore`.
+
+[0.1.0]: https://github.com/kevincoto18/codegraph/releases/tag/v0.1.0
