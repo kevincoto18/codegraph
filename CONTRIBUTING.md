@@ -139,7 +139,7 @@ the graph) and on a multi-root workspace with the Python and Go samples.
 ## Releasing
 
 1. Update `CHANGELOG.md` and the `version` in `package.json`.
-2. `npm run package` builds `codegraph-<version>.vsix` locally for a last check.
+2. `npm run package` builds `codegraph-map-<version>.vsix` locally for a last check.
 3. Push a tag `v<version>`: the **Publish** workflow publishes to the VS Code
    Marketplace with Trusted Publishing (no token stored) and attaches the
    `.vsix` to a GitHub release.

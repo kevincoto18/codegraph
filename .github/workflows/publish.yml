@@ -31,12 +31,12 @@ jobs:
             exit 1
           fi
       - name: Package
-        run: npx vsce package --out "codegraph-$GITHUB_REF_NAME.vsix"
+        run: npx vsce package --out "codegraph-map-$GITHUB_REF_NAME.vsix"
       - name: Publish to the VS Code Marketplace
-        run: npx vsce publish --oidc --packagePath "codegraph-$GITHUB_REF_NAME.vsix"
+        run: npx vsce publish --oidc --packagePath "codegraph-map-$GITHUB_REF_NAME.vsix"
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$GITHUB_REF_NAME" "codegraph-$GITHUB_REF_NAME.vsix"
+          gh release create "$GITHUB_REF_NAME" "codegraph-map-$GITHUB_REF_NAME.vsix"
           --title "$GITHUB_REF_NAME" --notes "See [CHANGELOG.md](CHANGELOG.md)."

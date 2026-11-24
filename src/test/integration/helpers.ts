@@ -21,7 +21,7 @@ const POLL_INTERVAL_MS = 200;
  */
 export async function activateCodeGraph(): Promise<CodeGraphApi> {
   const extension = vscode.extensions.all.find(
-    (candidate) => (candidate.packageJSON as { name?: unknown }).name === 'codegraph',
+    (candidate) => (candidate.packageJSON as { name?: unknown }).name === 'codegraph-map',
   );
   if (extension === undefined) {
     throw new Error('The CodeGraph extension is not loaded.');

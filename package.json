@@ -1,5 +1,5 @@
 {
-  "name": "codegraph",
+  "name": "codegraph-map",
   "displayName": "CodeGraph Map",
   "description": "Interactive graph of files, functions, imports and calls for TypeScript, JavaScript, Python, Java, C# and Go projects.",
   "version": "0.1.0",
