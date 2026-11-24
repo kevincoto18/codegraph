@@ -60,6 +60,8 @@ import { assignFolderColors, listFolderColors } from './folderColors';
 import type { ViewLayoutInputs, ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
+import type { SavedView } from './viewState';
+import { describeCollapseChanges, restoreCollapsed } from './viewState';
 import type { Box } from './viewportMath';
 import {
   CONTAINER_ZOOM,
@@ -91,6 +93,10 @@ interface GraphViewProps {
   readonly preferences: ViewPreferences;
   /** Called with new preferences when the user changes them. */
   readonly onPreferencesChange: (preferences: ViewPreferences) => void;
+  /** View to restore (viewport, opened containers, focus, search), or `null`. */
+  readonly savedView: SavedView | null;
+  /** Called (debounced) with the current view, so it can be restored later. */
+  readonly onViewChange: (view: SavedView) => void;
   readonly status: AnalysisState;
   readonly errorMessage: string | null;
   /** Requests a full rescan. */
@@ -116,6 +122,9 @@ const NOTICE_MS = 6000;
 
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
+
+/** Quiet period before the view is saved, in milliseconds. */
+const VIEW_SAVE_DELAY_MS = 300;
 
 /** Most displayed nodes for which layout changes are animated. */
 const MAX_ANIMATED_NODES = 2500;
@@ -202,6 +211,8 @@ function GraphViewContent({
   onRevealHandled,
   preferences,
   onPreferencesChange,
+  savedView,
+  onViewChange,
   status,
   errorMessage,
   onRefresh,
@@ -234,7 +245,11 @@ function GraphViewContent({
   );
   const folderTree = useMemo(() => folderTreeOf(snapshot, folderView), [snapshot, folderView]);
   const [collapsedIds, setCollapsedIds] = useState(() =>
-    getInitialCollapsedIds(snapshot, collapseMode, folderTree),
+    restoreCollapsed(
+      getInitialCollapsedIds(snapshot, collapseMode, folderTree),
+      savedView,
+      getAllContainerIds(snapshot, folderTree),
+    ),
   );
   // New settings re-apply the initial view state.
   const [appliedModes, setAppliedModes] = useState({ collapseMode, folderViewMode });
@@ -267,14 +282,16 @@ function GraphViewContent({
       ),
     );
   }
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(savedView?.query ?? '');
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const [minimapPreference, setMinimapPreference] = useState<MinimapPreference>('auto');
   const [notice, setNotice] = useState<string | null>(null);
   const [folderColorsEnabled, setFolderColorsEnabled] = useState(true);
-  const [focusId, setFocusId] = useState<string | null>(null);
-  const [focusDepth, setFocusDepth] = useState(1);
-  const [focusDirection, setFocusDirection] = useState<FocusDirection>('both');
+  const [focusId, setFocusId] = useState<string | null>(savedView?.focus?.nodeId ?? null);
+  const [focusDepth, setFocusDepth] = useState(savedView?.focus?.depth ?? 1);
+  const [focusDirection, setFocusDirection] = useState<FocusDirection>(
+    savedView?.focus?.direction ?? 'both',
+  );
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   /** Node highlighted because the editor cursor is on it (editor sync). */
   const [syncedId, setSyncedId] = useState<string | null>(null);
@@ -965,6 +982,53 @@ function GraphViewContent({
     setContextMenu(null);
   }, []);
 
+  // Save the view (debounced) so reopening the panel shows it as it was.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistView = useCallback(() => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      onViewChange({
+        viewport: getViewport(),
+        ...describeCollapseChanges(
+          getInitialCollapsedIds(snapshot, collapseMode, folderTree),
+          collapsedIds,
+        ),
+        focus:
+          activeFocusId === null
+            ? null
+            : { nodeId: activeFocusId, depth: focusDepth, direction: focusDirection },
+        query,
+      });
+    }, VIEW_SAVE_DELAY_MS);
+  }, [
+    onViewChange,
+    getViewport,
+    snapshot,
+    collapseMode,
+    folderTree,
+    collapsedIds,
+    activeFocusId,
+    focusDepth,
+    focusDirection,
+    query,
+  ]);
+
+  useEffect(() => {
+    persistView();
+  }, [persistView]);
+
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+      }
+    },
+    [],
+  );
+
   // While panning or zooming, a lighter style is used (see `.cg-moving` in styles.css).
   // The class is toggled on the DOM directly so moving never re-renders the view.
   const handleMoveStart = useCallback(() => {
@@ -974,7 +1038,8 @@ function GraphViewContent({
 
   const handleMoveEnd = useCallback(() => {
     canvasRef.current?.classList.remove('cg-moving');
-  }, []);
+    persistView();
+  }, [persistView]);
 
   const runContextMenuAction = useCallback(
     (action: ContextMenuAction) => {
@@ -1198,6 +1263,7 @@ function GraphViewContent({
           onMoveStart={handleMoveStart}
           onMoveEnd={handleMoveEnd}
           animate={displayedNodes.length <= MAX_ANIMATED_NODES}
+          savedViewport={savedView?.viewport ?? null}
           showMinimap={showMinimap}
           folderColors={folderColorsEnabled}
           panel={panel}

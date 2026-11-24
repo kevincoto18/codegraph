@@ -67,6 +67,8 @@ from the Command Palette (`Ctrl+Shift+P`).
 | Follow the editor        | **Sync** in the toolbar (or _Follow the editor_ in **View**): the graph highlights and centers the file or function under the cursor, opening the folders that hide it; in focus mode the focus follows the cursor. Saved per workspace                                                                                                                                                                       |
 | Search                   | **Enter** opens the folders/files hiding the matches and zooms to them · **Escape** clears                                                                                                                                                                                                                                                                                                                    |
 | Folder colors            | A thin stripe on each file and folder, one stable color per folder                                                                                                                                                                                                                                                                                                                                            |
+| Reload / reopen          | After a window reload the graph panel reopens by itself, with the same zoom and position, opened folders and files, focus and search (also when switching tabs)                                                                                                                                                                                                                                               |
+| Several folders          | In a multi-root workspace every folder is analyzed in one graph, each under a top-level folder named after it; adding or removing a folder updates the graph                                                                                                                                                                                                                                                  |
 | Full rescan              | **Refresh**                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Zoom / pan / move files  | Mouse wheel · drag the background · drag a file header                                                                                                                                                                                                                                                                                                                                                        |
 | Motion                   | Nodes slide to their new place after expanding or collapsing; large expansions appear progressively without freezing the view · going to a function (search, editor sync, focus) zooms in close to it, even inside a large file; tall files are shown from their header · when the editor opens beside the graph, the graph stays centered and the node you clicked stays in view                             |
@@ -150,14 +152,15 @@ chunks.
 
 ## Scripts
 
-| Script                                      | Purpose                                                            |
-| ------------------------------------------- | ------------------------------------------------------------------ |
-| `npm run build`                             | Bundle the extension and analyzer (esbuild) and the webview (Vite) |
-| `npm run watch:extension` / `watch:webview` | Rebuild on change                                                  |
-| `npm test` / `npm run test:watch`           | Unit and integration tests (Vitest)                                |
-| `npm run typecheck`                         | Type-check host and webview projects                               |
-| `npm run lint`                              | ESLint (strict type-checked, TSDoc required), zero warnings        |
-| `npm run format` / `format:check`           | Prettier                                                           |
+| Script                                      | Purpose                                                                                                                                                           |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                             | Bundle the extension and analyzer (esbuild) and the webview (Vite)                                                                                                |
+| `npm run watch:extension` / `watch:webview` | Rebuild on change                                                                                                                                                 |
+| `npm test` / `npm run test:watch`           | Unit and integration tests (Vitest)                                                                                                                               |
+| `npm run test:integration`                  | Tests inside a real VS Code window (`@vscode/test-cli`): commands, panel, Show Connections, live updates, multi-root. Downloads VS Code once into `.vscode-test/` |
+| `npm run typecheck`                         | Type-check host and webview projects                                                                                                                              |
+| `npm run lint`                              | ESLint (strict type-checked, TSDoc required), zero warnings                                                                                                       |
+| `npm run format` / `format:check`           | Prettier                                                                                                                                                          |
 
 ## Testing
 
@@ -166,7 +169,13 @@ checked against a full relink on random workspaces), diff, cache and its
 persistence, exclusions, wire format, graph service (in-memory workspace), change scheduler, webview HTML/CSP, and every
 pure webview module (flow conversion, collapse, search, layout, patches).
 `src/extension/demoProject.test.ts` analyzes `samples/demo-project` end to end
-and asserts the complete expected graph.
+and asserts the complete expected graph (`pythonDemo.test.ts` and
+`languageDemos.test.ts` do the same for the Python, Java, C# and Go samples).
+
+`npm run test:integration` runs `src/test/integration` inside a real VS Code
+window, twice: on `samples/demo-project` (commands, the graph panel, Show
+Connections opening beside the editor, a created and deleted file updating
+the graph) and on a multi-root workspace with the Python and Go samples.
 
 ## Languages
 
@@ -193,9 +202,9 @@ from another expression (`getRepo().save()`) stays unresolved.
 
 - Calls through **barrel re-exports** (`export … from`) are not followed (the file edge is shown).
 - **Path aliases** (`tsconfig` `paths`, e.g. `@/utils`) are not resolved; only relative imports are.
-- Calls on arbitrary objects (`obj.method()`, `a.b.c()`, `new X().m()`) are not resolved.
+- In TypeScript, JavaScript and Python, calls on arbitrary objects (`obj.method()`, `a.b.c()`, `new X().m()`) are not resolved (Java, C# and Go resolve them by type).
 - Nested functions are not nodes; their calls are attributed to the enclosing function.
-- Only the **first workspace folder** is analyzed; up to 5000 files.
+- Up to 5000 files (all workspace folders together).
 - Changes to `files.exclude` or `.gitignore` apply on the next **Refresh**; a nested `.gitignore` cannot re-include files ignored by a parent one.
 - Collapse/expand and **Re-layout** recompute positions, discarding manual drags.
 - TypeScript is pinned to **6.0.x**: TypeScript 7 (native port) does not expose the classic JS Compiler API.
@@ -213,7 +222,6 @@ from another expression (`getRepo().save()`) stays unresolved.
 - **ELK layout** (`elkjs`): native compound graphs and orthogonal edge routing
 - Optional **type checker** mode for precise `obj.method()` resolution
 - Follow **re-exports** and resolve **`paths` aliases**
-- **Multi-root** workspaces
 - Execution **simulation** on top of the current model (`nodes`, `edges`, `filePath`, `line`)
 
 ## License

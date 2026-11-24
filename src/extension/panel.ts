@@ -7,8 +7,8 @@ import type { HostToWebview, WebviewToHost } from '../shared';
 import { isWebviewToHostMessage } from '../shared';
 import { buildWebviewHtml, createNonce } from './webviewHtml';
 
-/** Identifier of the webview panel type. */
-const VIEW_TYPE = 'codegraph.graph';
+/** Identifier of the webview panel type (also used to restore panels after a reload). */
+export const VIEW_TYPE = 'codegraph.graph';
 
 /** Title shown on the panel tab. */
 const PANEL_TITLE = 'CodeGraph';
@@ -25,6 +25,20 @@ export interface PanelPlacement {
   readonly viewColumn: vscode.ViewColumn;
   /** Keep the keyboard focus where it is (e.g. in the editor). */
   readonly preserveFocus: boolean;
+}
+
+/**
+ * Options of the CodeGraph webview: scripts on, and only the webview bundle
+ * can be loaded.
+ *
+ * @param extensionUri - Root URI of the extension.
+ * @returns The webview options.
+ */
+function webviewOptions(extensionUri: vscode.Uri): vscode.WebviewOptions {
+  return {
+    enableScripts: true,
+    localResourceRoots: [vscode.Uri.joinPath(extensionUri, ...WEBVIEW_DIST_SEGMENTS)],
+  };
 }
 
 /** Default placement: the whole active editor area, focused. */
@@ -104,12 +118,52 @@ export class CodeGraphPanel implements vscode.Disposable {
     logger: PanelLogger,
     placement: PanelPlacement = FULL_EDITOR_PLACEMENT,
   ): CodeGraphPanel {
-    const webviewRoot = vscode.Uri.joinPath(extensionUri, ...WEBVIEW_DIST_SEGMENTS);
     const panel = vscode.window.createWebviewPanel(VIEW_TYPE, PANEL_TITLE, placement, {
-      enableScripts: true,
-      localResourceRoots: [webviewRoot],
+      ...webviewOptions(extensionUri),
       retainContextWhenHidden: false,
     });
+    return CodeGraphPanel.adopt(panel, extensionUri, onMessage, onDispose, logger);
+  }
+
+  /**
+   * Takes over a panel that VS Code restored after a window reload (its
+   * webview keeps the view state it saved).
+   *
+   * @param panel - Restored panel.
+   * @param extensionUri - Root URI of the extension.
+   * @param onMessage - Handler for validated webview messages.
+   * @param onDispose - Called once when the panel is closed.
+   * @param logger - Destination of protocol warnings.
+   * @returns The panel wrapper.
+   */
+  public static restore(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    onMessage: WebviewMessageHandler,
+    onDispose: () => void,
+    logger: PanelLogger,
+  ): CodeGraphPanel {
+    panel.webview.options = webviewOptions(extensionUri);
+    return CodeGraphPanel.adopt(panel, extensionUri, onMessage, onDispose, logger);
+  }
+
+  /**
+   * Sets the tab icon and wires a panel.
+   *
+   * @param panel - New or restored panel.
+   * @param extensionUri - Root URI of the extension.
+   * @param onMessage - Handler for validated webview messages.
+   * @param onDispose - Called once when the panel is closed.
+   * @param logger - Destination of protocol warnings.
+   * @returns The panel wrapper.
+   */
+  private static adopt(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    onMessage: WebviewMessageHandler,
+    onDispose: () => void,
+    logger: PanelLogger,
+  ): CodeGraphPanel {
     panel.iconPath = {
       light: vscode.Uri.joinPath(extensionUri, MEDIA_FOLDER, 'codegraph-light.svg'),
       dark: vscode.Uri.joinPath(extensionUri, MEDIA_FOLDER, 'codegraph-dark.svg'),

@@ -55,11 +55,17 @@ export function readSettings(configuration: ConfigurationReader): CodeGraphSetti
 }
 
 /**
- * Extracts the settings the webview needs.
+ * Converts the settings into the view options sent to the webview.
  *
- * @param settings - Resolved settings.
- * @returns View options to send to the webview.
+ * @param settings - Current settings.
+ * @param folderCount - Number of workspace folders; with several, `auto`
+ *   groups files into folders so each workspace folder is a group.
+ * @returns The view options.
  */
-export function toViewOptions(settings: CodeGraphSettings): ViewOptions {
-  return { collapseMode: settings.collapseByDefault, folderViewMode: settings.folderView };
+export function toViewOptions(settings: CodeGraphSettings, folderCount = 1): ViewOptions {
+  return {
+    collapseMode: settings.collapseByDefault,
+    folderViewMode:
+      folderCount > 1 && settings.folderView === 'auto' ? 'always' : settings.folderView,
+  };
 }

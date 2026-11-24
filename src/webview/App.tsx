@@ -6,6 +6,7 @@ import { DEFAULT_VIEW_PREFERENCES } from '../shared';
 import { GraphView } from './GraphView';
 import { StatusBar } from './StatusBar';
 import { useGraphChannel } from './useGraphChannel';
+import { loadSavedView, saveView } from './vscodeApi';
 
 /**
  * Root component of the CodeGraph webview. Shows a placeholder until the
@@ -91,6 +92,8 @@ export function App(): JSX.Element {
           onRevealHandled={markRevealHandled}
           preferences={preferences}
           onPreferencesChange={changePreferences}
+          savedView={loadSavedView()}
+          onViewChange={saveView}
           status={status}
           errorMessage={errorMessage}
           onRefresh={refresh}

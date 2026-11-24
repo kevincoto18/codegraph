@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     root: '.',
     include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
+    // Run inside VS Code by `npm run test:integration` instead.
+    exclude: ['src/test/integration/**', 'node_modules/**'],
     environment: 'node',
   },
 });

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-test/
 bench/results/
 *.vsix
 .vscode-test/

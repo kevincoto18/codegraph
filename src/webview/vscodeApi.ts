@@ -3,11 +3,17 @@
  */
 import type { HostToWebview, WebviewToHost } from '../shared';
 import { isHostToWebviewMessage } from '../shared';
+import type { SavedView } from './viewState';
+import { readSavedView } from './viewState';
 
 /** Subset of the API object injected by VS Code into webviews. */
 interface VsCodeApi {
   /** Sends a message to the extension host. */
   postMessage(message: unknown): void;
+  /** Returns the state saved for this webview (survives reloads of the view). */
+  getState(): unknown;
+  /** Saves state for this webview. */
+  setState(state: unknown): void;
 }
 
 declare global {
@@ -62,4 +68,23 @@ export function subscribeToHost(listener: (message: HostToWebview) => void): () 
   return () => {
     window.removeEventListener('message', handleMessage);
   };
+}
+
+/**
+ * Reads the view state saved for this panel.
+ *
+ * @returns The saved view, or `null` when there is none.
+ */
+export function loadSavedView(): SavedView | null {
+  return readSavedView(getVsCodeApi().getState());
+}
+
+/**
+ * Saves the view state for this panel; VS Code restores it when the panel is
+ * reopened (window reload, tab switch).
+ *
+ * @param view - View to save.
+ */
+export function saveView(view: SavedView): void {
+  getVsCodeApi().setState({ view });
 }

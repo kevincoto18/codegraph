@@ -40,6 +40,8 @@ const HARNESS_SCRIPT = `
   const params = new URLSearchParams(location.search);
   const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
   window.acquireVsCodeApi = () => ({
+    getState() { return window.__state; },
+    setState(state) { window.__state = state; },
     postMessage(message) {
       window.__sent.push(message);
       if (message.type !== 'ready' || window.__initDone) return;

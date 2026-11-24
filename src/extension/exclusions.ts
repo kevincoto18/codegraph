@@ -47,6 +47,30 @@ export function buildExcludeGlob(filesExclude: Readonly<Record<string, unknown>>
 }
 
 /**
+ * Compiles the enabled `files.exclude` patterns and the built-in excluded
+ * directories into a matcher, for when files are listed without
+ * `workspace.findFiles` (see `VsCodeWorkspaceReader`).
+ *
+ * @remarks `files.exclude` globs are read with `.gitignore` semantics, which
+ * agree on the common forms (`name`, `dir/**`, `*.ext` and the same with a
+ * leading globstar).
+ *
+ * @param filesExclude - Value of the `files.exclude` setting.
+ * @returns A function telling whether a workspace-relative path is excluded.
+ */
+export function createExcludeMatcher(
+  filesExclude: Readonly<Record<string, unknown>> = {},
+): (filePath: RelPath) => boolean {
+  const matcher = ignore().add([
+    ...EXCLUDED_DIRECTORIES.map((directory) => `${directory}/`),
+    ...Object.entries(filesExclude)
+      .filter(([, enabled]) => enabled === true)
+      .map(([pattern]) => pattern),
+  ]);
+  return (filePath) => filePath !== '' && matcher.ignores(filePath);
+}
+
+/**
  * Checks paths against every `.gitignore` of the workspace. Each file's rules
  * apply to paths inside its folder, relative to that folder, like Git does.
  *

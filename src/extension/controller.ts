@@ -26,13 +26,14 @@ import type { PanelPlacement } from './panel';
 import { CodeGraphPanel } from './panel';
 import type { CodeGraphSettings } from './settings';
 import { SETTINGS_SECTION, readSettings, toViewOptions } from './settings';
-import { VsCodeWorkspaceReader } from './workspaceReader';
+import { MultiRootWorkspaceReader } from './multiRootReader';
 import { WorkspaceSync } from './workspaceSync';
 
-/** Analysis resources bound to one workspace folder. */
+/** Analysis resources bound to the folders of the workspace. */
 interface AnalysisSession {
-  readonly folder: vscode.WorkspaceFolder;
-  readonly reader: VsCodeWorkspaceReader;
+  /** Analyzed workspace folders. */
+  readonly folders: readonly vscode.WorkspaceFolder[];
+  readonly reader: MultiRootWorkspaceReader;
   readonly service: GraphService;
   /** Live sync of workspace changes; runs while the session exists. */
   readonly sync: WorkspaceSync;
@@ -57,6 +58,31 @@ const PREFERENCES_KEY = 'codegraph.viewPreferences';
 
 /** Number of progress steps reported during a scan (one every 2%). */
 const PROGRESS_STEPS = 50;
+
+/**
+ * Identity of a set of workspace folders (order matters: it sets the path prefixes).
+ *
+ * @param folders - Workspace folders.
+ * @returns A short stable key.
+ */
+function sessionKeyOf(folders: readonly vscode.WorkspaceFolder[]): string {
+  const text = folders.map((folder) => `${folder.name}\u0000${folder.uri.toString()}`).join('\n');
+  let hash = 5381;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(index)) >>> 0;
+  }
+  return `roots${String(folders.length)}-${hash.toString(36)}`;
+}
+
+/**
+ * Human-readable list of folder names, for logs and titles.
+ *
+ * @param folders - Workspace folders.
+ * @returns E.g. `"api", "web"`.
+ */
+function folderNames(folders: readonly vscode.WorkspaceFolder[]): string {
+  return folders.map((folder) => `"${folder.name}"`).join(', ');
+}
 
 /**
  * Converts an unknown thrown value into a readable message.
@@ -92,7 +118,7 @@ export class CodeGraphController implements vscode.Disposable {
   private readonly configurationListener: vscode.Disposable;
   /** View preferences of the workspace (filters, editor sync). */
   private preferences: ViewPreferences;
-  /** Listeners of the active editor and its cursor (editor sync). */
+  /** Listeners of the active editor, its cursor (editor sync) and the workspace folders. */
   private readonly editorListeners: vscode.Disposable[];
   /** Debounces cursor moves before they are mirrored in the graph. */
   private readonly editorSync = new EditorSyncScheduler<vscode.Uri>((location) => {
@@ -128,7 +154,26 @@ export class CodeGraphController implements vscode.Disposable {
       vscode.window.onDidChangeTextEditorSelection((event) => {
         this.followEditor(event.textEditor);
       }),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        void this.handleFoldersChanged();
+      }),
     ];
+  }
+
+  /**
+   * Starts a new analysis when workspace folders are added or removed, and
+   * shows its graph if the panel is open.
+   */
+  private async handleFoldersChanged(): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    this.logger.info(`Workspace folders changed: ${folderNames(folders)}.`);
+    if (this.panel === undefined || folders.length === 0) {
+      await this.closeSession();
+      return;
+    }
+    this.graphShown = false;
+    void this.ensureSession(folders);
+    await this.sendGraph(false);
   }
 
   /**
@@ -206,12 +251,12 @@ export class CodeGraphController implements vscode.Disposable {
    *   area (a panel that already exists stays where it is).
    */
   public openGraph(placement?: PanelPlacement): void {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (folder === undefined) {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) {
       void vscode.window.showWarningMessage('CodeGraph: open a folder to analyze.');
       return;
     }
-    void this.ensureSession(folder);
+    void this.ensureSession(folders);
 
     if (this.panel !== undefined) {
       this.panel.reveal(placement);
@@ -229,6 +274,34 @@ export class CodeGraphController implements vscode.Disposable {
       this.logger,
       placement,
     );
+  }
+
+  /**
+   * Takes over a CodeGraph panel restored by VS Code after a window reload:
+   * the webview reloads, asks for the graph and restores the view it saved.
+   *
+   * @param panel - Restored panel.
+   */
+  public restorePanel(panel: vscode.WebviewPanel): void {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0 || this.panel !== undefined) {
+      panel.dispose();
+      return;
+    }
+    void this.ensureSession(folders);
+    this.panel = CodeGraphPanel.restore(
+      panel,
+      this.extensionUri,
+      (message) => {
+        void this.handleMessage(message);
+      },
+      () => {
+        this.panel = undefined;
+        this.graphShown = false;
+      },
+      this.logger,
+    );
+    this.logger.info('Graph panel restored after a reload.');
   }
 
   /**
@@ -300,6 +373,16 @@ export class CodeGraphController implements vscode.Disposable {
     await this.post({ type: 'focus', nodeId });
   }
 
+  /**
+   * Graph of the current analysis.
+   *
+   * @returns The latest graph, or `null` before the first scan.
+   */
+  public getGraph(): GraphSnapshot | null {
+    const service = this.session?.service;
+    return service?.hasScanned === true ? service.getSnapshot() : null;
+  }
+
   /** Closes the panel and releases resources. */
   public dispose(): void {
     this.configurationListener.dispose();
@@ -344,19 +427,20 @@ export class CodeGraphController implements vscode.Disposable {
   }
 
   /**
-   * Returns the session of a folder, creating a new one if the folder changed.
+   * Returns the session of the workspace folders, creating a new one if the
+   * folders changed.
    *
-   * @param folder - Workspace folder to analyze.
+   * @param folders - Workspace folders to analyze.
    * @returns The active session.
    */
-  private ensureSession(folder: vscode.WorkspaceFolder): Promise<AnalysisSession> {
-    const key = folder.uri.toString();
+  private ensureSession(folders: readonly vscode.WorkspaceFolder[]): Promise<AnalysisSession> {
+    const key = sessionKeyOf(folders);
     const existing = this.sessionRequest;
     if (existing?.key === key) {
       return existing.session;
     }
     void this.closeSession();
-    const session = this.createSession(folder);
+    const session = this.createSession(folders, key);
     this.sessionRequest = { key, session };
     session.then(
       (created) => {
@@ -372,23 +456,30 @@ export class CodeGraphController implements vscode.Disposable {
   }
 
   /**
-   * Creates the analysis resources of a folder. The analyzer (and the
-   * TypeScript compiler it bundles) is loaded on first use, so activating the
-   * extension stays instantaneous.
+   * Creates the analysis resources of the workspace folders. The analyzer
+   * (and the TypeScript compiler it bundles) is loaded on first use, so
+   * activating the extension stays instantaneous.
    *
-   * @param folder - Workspace folder to analyze.
+   * @param folders - Workspace folders to analyze.
+   * @param sessionKey - Identity of the folder set (part of the cache key).
    * @returns The new session.
    */
-  private async createSession(folder: vscode.WorkspaceFolder): Promise<AnalysisSession> {
+  private async createSession(
+    folders: readonly vscode.WorkspaceFolder[],
+    sessionKey: string,
+  ): Promise<AnalysisSession> {
     const startedAt = Date.now();
     const {
       GraphService: Service,
       ANALYSIS_CACHE_KEY,
       createDefaultParsePool,
     } = await import('./analysis');
-    const reader = new VsCodeWorkspaceReader(folder.uri);
+    const reader = new MultiRootWorkspaceReader(folders, (message) => {
+      this.logger.warn(message);
+    });
     const storageUri = this.cacheLocation.storageUri;
-    const key = `${ANALYSIS_CACHE_KEY}-ext${this.cacheLocation.extensionVersion}`;
+    // Caches of another folder set (paths are prefixed differently) are discarded.
+    const key = `${ANALYSIS_CACHE_KEY}-ext${this.cacheLocation.extensionVersion}-${sessionKey}`;
     const stores =
       storageUri === undefined
         ? {}
@@ -405,7 +496,7 @@ export class CodeGraphController implements vscode.Disposable {
       createParsePool: createDefaultParsePool,
     });
     const sync = new WorkspaceSync(
-      folder.uri,
+      reader.rootUris,
       reader,
       service,
       (patch) => {
@@ -414,9 +505,9 @@ export class CodeGraphController implements vscode.Disposable {
       this.logger,
     );
     this.logger.info(
-      `Analysis session created for "${folder.name}" (analyzer loaded in ${String(Date.now() - startedAt)} ms).`,
+      `Analysis session created for ${folderNames(folders)} (analyzer loaded in ${String(Date.now() - startedAt)} ms).`,
     );
-    return { folder, reader, service, sync };
+    return { folders, reader, service, sync };
   }
 
   /**
@@ -441,7 +532,10 @@ export class CodeGraphController implements vscode.Disposable {
     switch (message.type) {
       case 'ready':
         await this.post({ type: 'preferences', preferences: this.preferences });
-        await this.post({ type: 'options', options: toViewOptions(this.settings) });
+        await this.post({
+          type: 'options',
+          options: toViewOptions(this.settings, vscode.workspace.workspaceFolders?.length ?? 1),
+        });
         await this.sendGraph(false);
         return;
       case 'refresh':
@@ -571,7 +665,10 @@ export class CodeGraphController implements vscode.Disposable {
   private async handleSettingsChanged(): Promise<void> {
     this.settings = readSettings(vscode.workspace.getConfiguration(SETTINGS_SECTION));
     this.logger.info(`Settings updated: ${JSON.stringify(this.settings)}`);
-    await this.post({ type: 'options', options: toViewOptions(this.settings) });
+    await this.post({
+      type: 'options',
+      options: toViewOptions(this.settings, vscode.workspace.workspaceFolders?.length ?? 1),
+    });
   }
 
   /**
@@ -609,7 +706,7 @@ export class CodeGraphController implements vscode.Disposable {
       return;
     }
     const content = formatPerformanceReport(
-      `CodeGraph performance — ${this.session.folder.name}`,
+      `CodeGraph performance — ${folderNames(this.session.folders)}`,
       this.session.service.performance,
     );
     const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });

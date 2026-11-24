@@ -1,4 +1,4 @@
-import type { NodeMouseHandler, OnNodesChange } from '@xyflow/react';
+import type { NodeMouseHandler, OnNodesChange, Viewport } from '@xyflow/react';
 import { Background, Controls, MiniMap, Panel, ReactFlow } from '@xyflow/react';
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
@@ -27,6 +27,8 @@ interface GraphCanvasProps {
   readonly onMoveEnd: () => void;
   /** Whether nodes slide to their new position after a layout change. */
   readonly animate: boolean;
+  /** Viewport to open at (restored view); fits the graph when `null`. */
+  readonly savedViewport: Viewport | null;
   /** Whether the minimap is rendered. */
   readonly showMinimap: boolean;
   /** Whether files and folders show their folder color stripe. */
@@ -71,13 +73,16 @@ export function GraphCanvas({
   onMoveStart,
   onMoveEnd,
   animate,
+  savedViewport,
   showMinimap,
   folderColors,
   panel,
 }: GraphCanvasProps): JSX.Element {
   // Mount at the final zoom (see computeFitViewport) instead of fitting afterwards.
-  const [initialViewport] = useState(() =>
-    computeFitViewport(nodes, window.innerWidth, window.innerHeight - TOOLBAR_HEIGHT),
+  const [initialViewport] = useState(
+    () =>
+      savedViewport ??
+      computeFitViewport(nodes, window.innerWidth, window.innerHeight - TOOLBAR_HEIGHT),
   );
   const lowDetail = useLowDetail();
   const edgesHidden = shouldHideEdges(lowDetail, edges.length);

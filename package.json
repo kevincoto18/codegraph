@@ -14,9 +14,19 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:codegraph.graph"
   ],
   "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Files are read through the VS Code file system, so virtual and remote repositories can be analyzed; very large ones can be slow to scan."
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -102,9 +112,10 @@
     "build:webview": "vite build",
     "watch:extension": "node esbuild.mjs --watch",
     "watch:webview": "vite build --watch",
-    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p src/test/integration/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "npm run build && node scripts/build-integration-tests.mjs && vscode-test",
     "bench": "node scripts/run.mjs scripts/bench.ts",
     "bench:baseline": "node scripts/run.mjs scripts/bench.ts --save-baseline",
     "bench:check": "node scripts/run.mjs scripts/bench.ts --check",
@@ -119,11 +130,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/vscode": "~1.95.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/tree-sitter-wasm": "^0.3.1",
     "@xyflow/react": "^13.0.2",
     "esbuild": "^0.28.2",
@@ -133,6 +147,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
     "ignore": "^7.0.16",
+    "mocha": "^12.0.3",
     "playwright-core": "^1.65.1",
     "prettier": "^3.10.1",
     "react": "^19.3.1",

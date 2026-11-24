@@ -9,7 +9,7 @@ import { isAnalyzableFile } from './analyzer/config';
 import type { FileChangeKind } from './changeScheduler';
 import { ChangeScheduler } from './changeScheduler';
 import type { GraphService } from './graphService';
-import type { VsCodeWorkspaceReader } from './workspaceReader';
+import type { WorkspaceFiles } from './multiRootReader';
 
 /** Logging surface used by the sync. */
 interface SyncLogger {
@@ -42,15 +42,15 @@ export class WorkspaceSync implements vscode.Disposable {
   /**
    * Starts listening to the workspace.
    *
-   * @param root - Workspace folder being analyzed.
+   * @param roots - Workspace folders being analyzed.
    * @param reader - Converts between URIs and workspace-relative paths.
    * @param service - Graph service that applies the changes.
    * @param onPatch - Receives every non-empty patch.
    * @param logger - Destination of diagnostic messages.
    */
   public constructor(
-    root: vscode.Uri,
-    private readonly reader: VsCodeWorkspaceReader,
+    roots: readonly vscode.Uri[],
+    private readonly reader: WorkspaceFiles,
     private readonly service: GraphService,
     private readonly onPatch: (patch: GraphPatch) => void,
     private readonly logger: SyncLogger,
@@ -61,20 +61,24 @@ export class WorkspaceSync implements vscode.Disposable {
 
     // Watch every path (not only source files) so folder deletions and
     // creations are reported too.
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, '**'),
-    );
+    for (const root of roots) {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(root, '**'),
+      );
+      this.disposables.push(
+        watcher,
+        watcher.onDidCreate((uri) => {
+          void this.handleCreated(uri);
+        }),
+        watcher.onDidChange((uri) => {
+          void this.enqueueUpdate(uri);
+        }),
+        watcher.onDidDelete((uri) => {
+          this.handleDeleted(uri);
+        }),
+      );
+    }
     this.disposables.push(
-      watcher,
-      watcher.onDidCreate((uri) => {
-        void this.handleCreated(uri);
-      }),
-      watcher.onDidChange((uri) => {
-        void this.enqueueUpdate(uri);
-      }),
-      watcher.onDidDelete((uri) => {
-        this.handleDeleted(uri);
-      }),
       vscode.workspace.onDidSaveTextDocument((document) => {
         void this.enqueueUpdate(document.uri);
       }),

@@ -40,4 +40,16 @@ describe('toViewOptions', () => {
       folderViewMode: 'never',
     });
   });
+
+  it('groups by folder when several workspace folders are open, unless disabled', () => {
+    expect(toViewOptions({ collapseByDefault: 'auto', folderView: 'auto' }, 2).folderViewMode).toBe(
+      'always',
+    );
+    expect(
+      toViewOptions({ collapseByDefault: 'auto', folderView: 'never' }, 2).folderViewMode,
+    ).toBe('never');
+    expect(toViewOptions({ collapseByDefault: 'auto', folderView: 'auto' }, 1).folderViewMode).toBe(
+      'auto',
+    );
+  });
 });
