@@ -7,6 +7,8 @@ import { createContext, useContext } from 'react';
 export interface GraphActions {
   /** Collapses or expands a file or folder container. */
   readonly toggle: (containerId: string) => void;
+  /** Opens a file or function in the editor (also reveals it in the graph later). */
+  readonly open: (nodeId: string, filePath: string, line: number) => void;
 }
 
 /** Context carrying the graph actions; provided by `GraphView`. */

@@ -57,7 +57,12 @@ describe('reduceHostMessage', () => {
       sessionId: 0,
       outOfSync: false,
       lastChange: null,
-      options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'auto' },
+      options: {
+        collapseMode: 'always',
+        folderViewMode: 'auto',
+        scrollBehavior: 'auto',
+        workspaceRoots: [],
+      },
       focusRequest: null,
       revealRequest: null,
       preferences: null,
@@ -76,7 +81,12 @@ describe('reduceHostMessage', () => {
       sessionId: 1,
       outOfSync: false,
       lastChange: null,
-      options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'auto' },
+      options: {
+        collapseMode: 'always',
+        folderViewMode: 'auto',
+        scrollBehavior: 'auto',
+        workspaceRoots: [],
+      },
       focusRequest: null,
       revealRequest: null,
       preferences: null,
@@ -173,18 +183,25 @@ describe('reduceHostMessage — view options', () => {
   it('stores options and keeps them across new snapshots', () => {
     const withOptions = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
       type: 'options',
-      options: { collapseMode: 'never', folderViewMode: 'always', scrollBehavior: 'auto' },
+      options: {
+        collapseMode: 'never',
+        folderViewMode: 'always',
+        scrollBehavior: 'auto',
+        workspaceRoots: [],
+      },
     });
     expect(withOptions.options).toEqual({
       collapseMode: 'never',
       folderViewMode: 'always',
       scrollBehavior: 'auto',
+      workspaceRoots: [],
     });
     const ready = reduceHostMessage(withOptions, { type: 'graph/loaded', graph: SNAPSHOT });
     expect(ready.options).toEqual({
       collapseMode: 'never',
       folderViewMode: 'always',
       scrollBehavior: 'auto',
+      workspaceRoots: [],
     });
   });
 });

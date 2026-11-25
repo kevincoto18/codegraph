@@ -27,6 +27,7 @@ import { CodeGraphPanel } from './panel';
 import type { CodeGraphSettings } from './settings';
 import { SETTINGS_SECTION, readSettings, toViewOptions } from './settings';
 import { MultiRootWorkspaceReader } from './multiRootReader';
+import { assignRootPrefixes } from './rootPaths';
 import { WorkspaceSync } from './workspaceSync';
 
 /** Analysis resources bound to the folders of the workspace. */
@@ -82,6 +83,17 @@ function sessionKeyOf(folders: readonly vscode.WorkspaceFolder[]): string {
  */
 function folderNames(folders: readonly vscode.WorkspaceFolder[]): string {
   return folders.map((folder) => `"${folder.name}"`).join(', ');
+}
+
+/**
+ * Top-level folder names of the open workspace folders, as they prefix the
+ * paths of the graph (see `rootPaths.ts`).
+ *
+ * @returns One name per folder, or an empty list with a single folder.
+ */
+function workspaceRootNames(): string[] {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  return folders.length > 1 ? assignRootPrefixes(folders.map((folder) => folder.name)) : [];
 }
 
 /**
@@ -534,7 +546,7 @@ export class CodeGraphController implements vscode.Disposable {
         await this.post({ type: 'preferences', preferences: this.preferences });
         await this.post({
           type: 'options',
-          options: toViewOptions(this.settings, vscode.workspace.workspaceFolders?.length ?? 1),
+          options: toViewOptions(this.settings, workspaceRootNames()),
         });
         await this.sendGraph(false);
         return;
@@ -667,7 +679,7 @@ export class CodeGraphController implements vscode.Disposable {
     this.logger.info(`Settings updated: ${JSON.stringify(this.settings)}`);
     await this.post({
       type: 'options',
-      options: toViewOptions(this.settings, vscode.workspace.workspaceFolders?.length ?? 1),
+      options: toViewOptions(this.settings, workspaceRootNames()),
     });
   }
 

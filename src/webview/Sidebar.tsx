@@ -6,7 +6,7 @@ import { SidebarSection, Segmented, SwitchRow } from './controls';
 import type { SegmentOption } from './controls';
 import type { FocusDirection } from './focus';
 import { FOCUS_DEPTHS, FOCUS_DIRECTIONS } from './focus';
-import type { FolderColorEntry } from './folderColors';
+import type { FolderColorEntry, WorkspaceColorEntry } from './folderColors';
 import { FiltersTab } from './FiltersTab';
 import type { IconName } from './icons';
 import { Icon } from './icons';
@@ -32,6 +32,8 @@ export interface SidebarFilters {
   readonly folders: readonly FolderEntry[];
   /** Color of each folder that directly contains files. */
   readonly folderColors: ReadonlyMap<RelPath, string>;
+  /** Workspace folders with their colors (multi-root); empty with one folder. */
+  readonly workspaceFolders: readonly WorkspaceColorEntry[];
   readonly hiddenFiles: number;
   readonly hiddenFunctions: number;
 }
@@ -63,6 +65,8 @@ export interface SidebarView {
   readonly onToggleFolderColors: () => void;
   /** Folders and their colors, largest first (legend). */
   readonly folderColors: readonly FolderColorEntry[];
+  /** Workspace folders and their colors (multi-root legend); empty with one folder. */
+  readonly workspaceColors: readonly WorkspaceColorEntry[];
   readonly editorSync: boolean;
   readonly onEditorSyncChange: (enabled: boolean) => void;
 }
@@ -297,6 +301,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                 onChange={filters.onChange}
                 folders={filters.folders}
                 folderColors={filters.folderColors}
+                workspaceFolders={filters.workspaceFolders}
                 hiddenFiles={filters.hiddenFiles}
                 hiddenFunctions={filters.hiddenFunctions}
               />
@@ -409,31 +414,61 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                     onChange={view.onToggleFolderColors}
                   />
                 </SidebarSection>
-                {view.folderColorsEnabled && view.folderColors.length > 0 && (
+                {view.folderColorsEnabled && view.workspaceColors.length > 0 && (
                   <SidebarSection title="Color legend">
                     <ul className="cg-color-legend">
-                      {view.folderColors.slice(0, MAX_LISTED_FOLDER_COLORS).map((entry) => (
-                        <li
-                          key={entry.folder}
-                          className="cg-color-legend__item"
-                          title={entry.folder}
-                        >
-                          <span
-                            className="cg-color-legend__swatch"
-                            style={{ background: entry.color }}
-                          />
-                          <span className="cg-color-legend__name">{entry.folder}</span>
-                          <span className="cg-color-legend__count">{entry.fileCount}</span>
+                      {view.workspaceColors.map((entry) => (
+                        <li key={entry.root} className="cg-color-legend__group">
+                          <div className="cg-color-legend__item" title={entry.root}>
+                            <span
+                              className="cg-color-legend__swatch"
+                              style={{ background: entry.color }}
+                            />
+                            <span className="cg-color-legend__name cg-color-legend__name--root">
+                              {entry.root}
+                            </span>
+                            <span className="cg-color-legend__count">{entry.fileCount}</span>
+                          </div>
+                          {entry.folders.length > 0 && (
+                            <div
+                              className="cg-color-legend__folders"
+                              title={entry.folders.join(', ')}
+                            >
+                              {entry.folders.join(' · ')}
+                            </div>
+                          )}
                         </li>
                       ))}
-                      {view.folderColors.length > MAX_LISTED_FOLDER_COLORS && (
-                        <li className="cg-side-hint">
-                          +{view.folderColors.length - MAX_LISTED_FOLDER_COLORS} more folders
-                        </li>
-                      )}
                     </ul>
                   </SidebarSection>
                 )}
+                {view.folderColorsEnabled &&
+                  view.workspaceColors.length === 0 &&
+                  view.folderColors.length > 0 && (
+                    <SidebarSection title="Color legend">
+                      <ul className="cg-color-legend">
+                        {view.folderColors.slice(0, MAX_LISTED_FOLDER_COLORS).map((entry) => (
+                          <li
+                            key={entry.folder}
+                            className="cg-color-legend__item"
+                            title={entry.folder}
+                          >
+                            <span
+                              className="cg-color-legend__swatch"
+                              style={{ background: entry.color }}
+                            />
+                            <span className="cg-color-legend__name">{entry.folder}</span>
+                            <span className="cg-color-legend__count">{entry.fileCount}</span>
+                          </li>
+                        ))}
+                        {view.folderColors.length > MAX_LISTED_FOLDER_COLORS && (
+                          <li className="cg-side-hint">
+                            +{view.folderColors.length - MAX_LISTED_FOLDER_COLORS} more folders
+                          </li>
+                        )}
+                      </ul>
+                    </SidebarSection>
+                  )}
               </>
             )}
           </div>

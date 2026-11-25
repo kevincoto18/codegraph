@@ -57,7 +57,7 @@ import {
 } from './progressiveMount';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
-import { assignFolderColors, listFolderColors } from './folderColors';
+import { assignFolderColors, listFolderColors, listWorkspaceColors } from './folderColors';
 import type { ViewLayoutInputs, ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
@@ -84,6 +84,8 @@ interface GraphViewProps {
   readonly folderViewMode: FolderViewMode;
   /** What the mouse wheel and two-finger scrolling do. */
   readonly scrollBehavior: ScrollBehavior;
+  /** Workspace folder names when several are open (multi-root); empty otherwise. */
+  readonly workspaceRoots: readonly string[];
   /** Focus asked by the host and not applied yet. */
   readonly focusRequest: FocusRequest | null;
   /** Called once a host focus request has been applied. */
@@ -175,10 +177,15 @@ function countFiles(snapshot: GraphSnapshot): number {
  *
  * @param snapshot - Graph snapshot.
  * @param folderView - Whether files are grouped into folders.
+ * @param workspaceRoots - Workspace folder names (multi-root), kept as top-level folders.
  * @returns The folder tree, or `null`.
  */
-function folderTreeOf(snapshot: GraphSnapshot, folderView: boolean): FolderTree | null {
-  return folderView ? buildFolderTree(snapshot.nodes) : null;
+function folderTreeOf(
+  snapshot: GraphSnapshot,
+  folderView: boolean,
+  workspaceRoots: readonly string[],
+): FolderTree | null {
+  return folderView ? buildFolderTree(snapshot.nodes, workspaceRoots) : null;
 }
 
 /**
@@ -209,6 +216,7 @@ function GraphViewContent({
   collapseMode,
   folderViewMode,
   scrollBehavior,
+  workspaceRoots,
   focusRequest,
   onFocusHandled,
   revealRequest,
@@ -239,15 +247,19 @@ function GraphViewContent({
     () =>
       assignFolderColors(
         fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+        workspaceRoots,
       ),
-    [fullSnapshot],
+    [fullSnapshot, workspaceRoots],
   );
   const edgeFilters = preferences.connections;
   // `auto` is decided once per graph, so live patches never switch the view.
   const [folderView, setFolderView] = useState(() =>
     isFolderViewEnabled(folderViewMode, countFiles(snapshot)),
   );
-  const folderTree = useMemo(() => folderTreeOf(snapshot, folderView), [snapshot, folderView]);
+  const folderTree = useMemo(
+    () => folderTreeOf(snapshot, folderView, workspaceRoots),
+    [snapshot, folderView, workspaceRoots],
+  );
   const [collapsedIds, setCollapsedIds] = useState(() =>
     restoreCollapsed(
       getInitialCollapsedIds(snapshot, collapseMode, folderTree),
@@ -265,7 +277,11 @@ function GraphViewContent({
     setAppliedModes({ collapseMode, folderViewMode });
     setFolderView(nextFolderView);
     setCollapsedIds(
-      getInitialCollapsedIds(snapshot, collapseMode, folderTreeOf(snapshot, nextFolderView)),
+      getInitialCollapsedIds(
+        snapshot,
+        collapseMode,
+        folderTreeOf(snapshot, nextFolderView, workspaceRoots),
+      ),
     );
   }
   const [layoutRequest, setLayoutRequest] = useState(0);
@@ -458,9 +474,15 @@ function GraphViewContent({
       ),
     [fullSnapshot],
   );
-  const folderColorOf = useMemo(
-    () => new Map(folderColorEntries.map((entry) => [entry.folder, entry.color])),
-    [folderColorEntries],
+  const workspaceColorEntries = useMemo(
+    () =>
+      workspaceRoots.length > 1
+        ? listWorkspaceColors(
+            fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+            workspaceRoots,
+          )
+        : [],
+    [fullSnapshot, workspaceRoots],
   );
 
   // Report each recomputed layout once (dragging nodes does not recompute it).
@@ -946,13 +968,23 @@ function GraphViewContent({
 
   // While focusing, clicking another file or function moves the focus to it.
   const handleNodeClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
-    (_event, node) => {
+    (event, node) => {
       if (node.type === 'folder') {
         toggle(node.id);
         return;
       }
       if (activeFocusId !== null && node.id !== activeFocusId) {
         enterFocus(node.id);
+      }
+      // A file opens and closes its function list; Ctrl/Cmd + click (or its
+      // open button) opens the code. The second click of a double-click
+      // (focus mode) does not toggle again.
+      const opensCode = event.ctrlKey || event.metaKey;
+      if (node.type === 'file' && !opensCode && node.data.functionCount > 0) {
+        if (event.detail < 2) {
+          toggle(node.id);
+        }
+        return;
       }
       lastNavigatedRef.current = { id: node.id, at: performance.now() };
       onNavigate(node.data.filePath, node.data.line);
@@ -1172,7 +1204,14 @@ function GraphViewContent({
     setMinimapPreference(showMinimap ? 'off' : 'on');
   }, [showMinimap]);
 
-  const actions = useMemo<GraphActions>(() => ({ toggle }), [toggle]);
+  const openNode = useCallback(
+    (nodeId: string, filePath: string, line: number) => {
+      lastNavigatedRef.current = { id: nodeId, at: performance.now() };
+      onNavigate(filePath, line);
+    },
+    [onNavigate],
+  );
+  const actions = useMemo<GraphActions>(() => ({ toggle, open: openNode }), [toggle, openNode]);
 
   const panel = (
     <Sidebar
@@ -1194,7 +1233,8 @@ function GraphViewContent({
         filters: preferences.nodes,
         onChange: setNodeFilters,
         folders,
-        folderColors: folderColorOf,
+        folderColors: folderColorMap,
+        workspaceFolders: workspaceColorEntries,
         hiddenFiles: filtered.hiddenFiles,
         hiddenFunctions: filtered.hiddenFunctions,
       }}
@@ -1218,6 +1258,7 @@ function GraphViewContent({
         folderColorsEnabled,
         onToggleFolderColors: toggleFolderColors,
         folderColors: folderColorEntries,
+        workspaceColors: workspaceColorEntries,
         editorSync: preferences.editorSync,
         onEditorSyncChange: setEditorSync,
       }}

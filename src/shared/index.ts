@@ -30,6 +30,7 @@ export {
   FOLDER_VIEW_MODES,
   SCROLL_BEHAVIORS,
   MAX_METRIC_SAMPLES,
+  MAX_WORKSPACE_ROOTS,
   createGraphInitMessages,
   isHostToWebviewMessage,
   isWebviewToHostMessage,

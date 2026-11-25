@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildFolderTree,
   createFolderId,
+  formatWorkspacePath,
   getAllFolderIds,
   getAncestorFolderIds,
   isFolderId,
@@ -80,5 +81,64 @@ describe('folder ids and view mode', () => {
     expect(isFolderViewEnabled('auto', 300)).toBe(false);
     expect(isFolderViewEnabled('auto', 301)).toBe(true);
     expect(isFolderViewEnabled('auto', 5, 4)).toBe(true);
+  });
+});
+
+describe('buildFolderTree in a multi-root workspace', () => {
+  const nodes = [
+    fileNode('web/src/app.ts'),
+    fileNode('web/src/view.tsx'),
+    fileNode('web/scripts/build.js'),
+    fileNode('api/src/main/java/com/demo/App.java'),
+    fileNode('api/src/main/java/com/demo/Repo.java'),
+  ];
+  const tree = buildFolderTree(nodes, ['web', 'api']);
+
+  it('keeps workspace folders as top-level folders, in workspace order', () => {
+    expect(tree.rootFolderIds).toEqual(['folder:web', 'folder:api']);
+    expect(tree.workspaceRoots).toEqual(['web', 'api']);
+  });
+
+  it('never merges a workspace folder with its only sub-folder', () => {
+    expect(tree.folders.get('folder:api')).toMatchObject({
+      label: 'api',
+      isWorkspaceRoot: true,
+      workspaceRoot: 'api',
+      folderIds: ['folder:api/src/main/java/com/demo'],
+    });
+    expect(tree.folders.get('folder:api/src/main/java/com/demo')).toMatchObject({
+      label: 'src/main/java/com/demo',
+      isWorkspaceRoot: false,
+      workspaceRoot: 'api',
+      languages: [],
+    });
+  });
+
+  it('summarizes the languages of each workspace folder, most used first', () => {
+    expect(tree.folders.get('folder:web')?.languages).toEqual(['TS', 'JS']);
+    expect(tree.folders.get('folder:api')?.languages).toEqual(['JAVA']);
+  });
+
+  it('keeps single-folder trees unchanged', () => {
+    const single = buildFolderTree(nodes, ['web']);
+    expect(single.workspaceRoots).toEqual([]);
+    expect(single.folders.get('folder:api/src/main/java/com/demo')?.label).toBe(
+      'api/src/main/java/com/demo',
+    );
+    expect(single.folders.get('folder:web')?.isWorkspaceRoot).toBe(false);
+  });
+});
+
+describe('formatWorkspacePath', () => {
+  it('sets the workspace folder apart in a multi-root workspace', () => {
+    expect(formatWorkspacePath('go-demo/internal/storage', ['go-demo', 'web'])).toBe(
+      'go-demo › internal/storage',
+    );
+    expect(formatWorkspacePath('go-demo', ['go-demo', 'web'])).toBe('go-demo');
+  });
+
+  it('leaves paths alone with one folder or outside the workspace folders', () => {
+    expect(formatWorkspacePath('src/app.ts', [])).toBe('src/app.ts');
+    expect(formatWorkspacePath('other/app.ts', ['go-demo', 'web'])).toBe('other/app.ts');
   });
 });

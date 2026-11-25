@@ -52,20 +52,35 @@ describe('toViewOptions', () => {
       collapseMode: 'auto',
       folderViewMode: 'never',
       scrollBehavior: 'zoom',
+      workspaceRoots: [],
     });
+  });
+
+  it('lists the workspace folders only when several are open', () => {
+    const settings = {
+      collapseByDefault: 'auto',
+      folderView: 'auto',
+      scrollBehavior: 'auto',
+    } as const;
+    expect(toViewOptions(settings, ['api', 'web']).workspaceRoots).toEqual(['api', 'web']);
+    expect(toViewOptions(settings, ['api']).workspaceRoots).toEqual([]);
   });
 
   it('groups by folder when several workspace folders are open, unless disabled', () => {
     expect(
-      toViewOptions({ collapseByDefault: 'auto', folderView: 'auto', scrollBehavior: 'auto' }, 2)
-        .folderViewMode,
+      toViewOptions({ collapseByDefault: 'auto', folderView: 'auto', scrollBehavior: 'auto' }, [
+        'api',
+        'web',
+      ]).folderViewMode,
     ).toBe('always');
     expect(
-      toViewOptions({ collapseByDefault: 'auto', folderView: 'never', scrollBehavior: 'auto' }, 2)
-        .folderViewMode,
+      toViewOptions({ collapseByDefault: 'auto', folderView: 'never', scrollBehavior: 'auto' }, [
+        'api',
+        'web',
+      ]).folderViewMode,
     ).toBe('never');
     expect(
-      toViewOptions({ collapseByDefault: 'auto', folderView: 'auto', scrollBehavior: 'auto' }, 1)
+      toViewOptions({ collapseByDefault: 'auto', folderView: 'auto', scrollBehavior: 'auto' }, [])
         .folderViewMode,
     ).toBe('auto');
   });

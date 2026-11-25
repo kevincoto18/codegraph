@@ -62,18 +62,24 @@ export function readSettings(configuration: ConfigurationReader): CodeGraphSetti
 }
 
 /**
- * Converts the settings into the view options sent to the webview.
+ * Converts settings into the options sent to the webview. With several
+ * workspace folders, `auto` folder view always groups by folder, so each
+ * folder appears under its own top-level node.
  *
  * @param settings - Current settings.
- * @param folderCount - Number of workspace folders; with several, `auto`
- *   groups files into folders so each workspace folder is a group.
- * @returns The view options.
+ * @param workspaceRoots - Top-level folder names of the workspace folders
+ *   when several are open (see `rootPaths.ts`); empty with one folder.
+ * @returns The webview options.
  */
-export function toViewOptions(settings: CodeGraphSettings, folderCount = 1): ViewOptions {
+export function toViewOptions(
+  settings: CodeGraphSettings,
+  workspaceRoots: readonly string[] = [],
+): ViewOptions {
+  const multiRoot = workspaceRoots.length > 1;
   return {
     collapseMode: settings.collapseByDefault,
-    folderViewMode:
-      folderCount > 1 && settings.folderView === 'auto' ? 'always' : settings.folderView,
+    folderViewMode: multiRoot && settings.folderView === 'auto' ? 'always' : settings.folderView,
     scrollBehavior: settings.scrollBehavior,
+    workspaceRoots: multiRoot ? workspaceRoots : [],
   };
 }

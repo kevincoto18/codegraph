@@ -14,6 +14,17 @@ All notable changes to CodeGraph Map are documented here. The format follows
 - **Keyboard navigation**: arrows pan (faster with Shift), `+` / `-` zoom, `0`
   fits the graph; hold **Space** and drag to pan even over nodes; Shift + wheel
   pans sideways.
+- **Multi-root workspaces are easier to read**: each workspace folder is its
+  own top-level node (never merged with a sub-folder) with its color, icon and
+  languages; everything inside takes its color; the legend groups by workspace
+  folder; **Filters → Workspace folders** hides a whole project; tooltips show
+  `project › path`.
+
+### Changed
+
+- **Clicking a file opens or closes its function list** instead of opening the
+  code. Open the code with Ctrl/Cmd + click, the file's open button (↗) or
+  right-click → _Go to code_. Clicking a function still opens it.
 
 ## [0.1.0] - 2026-11-24
 

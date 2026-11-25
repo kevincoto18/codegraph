@@ -48,7 +48,14 @@ describe('computeFitViewport', () => {
           position: { x: 0, y: 0 },
           width: 100,
           height: 100,
-          data: { label: 'a', filePath: 'a', line: 1, functionCount: 0, collapsed: true },
+          data: {
+            label: 'a',
+            filePath: 'a',
+            line: 1,
+            functionCount: 0,
+            collapsed: true,
+            tooltip: 'a',
+          },
         },
         {
           id: 'b',
@@ -56,7 +63,14 @@ describe('computeFitViewport', () => {
           position: { x: 900, y: 0 },
           width: 100,
           height: 100,
-          data: { label: 'b', filePath: 'b', line: 1, functionCount: 0, collapsed: true },
+          data: {
+            label: 'b',
+            filePath: 'b',
+            line: 1,
+            functionCount: 0,
+            collapsed: true,
+            tooltip: 'b',
+          },
         },
         {
           id: 'c',

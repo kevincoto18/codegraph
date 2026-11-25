@@ -35,6 +35,11 @@ export interface ViewOptions {
   readonly folderViewMode: FolderViewMode;
   /** What the mouse wheel and two-finger scrolling do. */
   readonly scrollBehavior: ScrollBehavior;
+  /**
+   * Top-level folder names of the workspace folders when several are open
+   * (multi-root), in workspace order; empty with a single folder.
+   */
+  readonly workspaceRoots: readonly string[];
 }
 
 /** Messages sent from the extension host to the webview. */
@@ -120,8 +125,25 @@ export const COLLAPSE_MODES: readonly CollapseMode[] = ['always', 'auto', 'never
 /** All valid folder view modes, used for runtime validation. */
 export const FOLDER_VIEW_MODES: readonly FolderViewMode[] = ['always', 'auto', 'never'];
 
+/** Most workspace folders accepted in an `options` message. */
+export const MAX_WORKSPACE_ROOTS = 256;
+
 /** Every valid {@link ScrollBehavior}. */
 export const SCROLL_BEHAVIORS: readonly ScrollBehavior[] = ['auto', 'pan', 'zoom'];
+
+/**
+ * Checks a list of workspace folder names (non-empty, without `/`).
+ *
+ * @param value - Value to inspect.
+ * @returns `true` for a valid list.
+ */
+function isWorkspaceRootList(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_WORKSPACE_ROOTS &&
+    value.every((root) => typeof root === 'string' && root !== '' && !root.includes('/'))
+  );
+}
 
 /**
  * Checks whether a value is a non-null, non-array object.
@@ -250,7 +272,8 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
         isRecord(value.options) &&
         COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode) &&
         FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode) &&
-        SCROLL_BEHAVIORS.includes(value.options.scrollBehavior as ScrollBehavior)
+        SCROLL_BEHAVIORS.includes(value.options.scrollBehavior as ScrollBehavior) &&
+        isWorkspaceRootList(value.options.workspaceRoots)
       );
     case 'focus':
     case 'reveal':

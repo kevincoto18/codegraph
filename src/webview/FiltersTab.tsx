@@ -4,7 +4,9 @@ import { useMemo, useState } from 'react';
 import type { NodeFilters, RelPath } from '../shared';
 import { MAX_EXCLUDE_PATTERNS } from '../shared';
 import { SidebarSection, SwitchRow } from './controls';
+import type { WorkspaceColorEntry } from './folderColors';
 import { Icon } from './icons';
+import { formatFileCount } from './nodes/FolderNode';
 import type { FolderEntry } from './nodeFilters';
 import {
   compileExcludePattern,
@@ -24,6 +26,8 @@ interface FiltersTabProps {
   readonly folders: readonly FolderEntry[];
   /** Color of each folder that directly contains files. */
   readonly folderColors: ReadonlyMap<RelPath, string>;
+  /** Workspace folders with their colors (multi-root); empty with one folder. */
+  readonly workspaceFolders: readonly WorkspaceColorEntry[];
   /** Files hidden by the filters. */
   readonly hiddenFiles: number;
   /** Functions hidden by the filters. */
@@ -71,6 +75,7 @@ export function FiltersTab({
   onChange,
   folders,
   folderColors,
+  workspaceFolders,
   hiddenFiles,
   hiddenFunctions,
 }: FiltersTabProps): JSX.Element {
@@ -149,6 +154,26 @@ export function FiltersTab({
           </button>
         )}
       </div>
+
+      {workspaceFolders.length > 0 && (
+        <SidebarSection title="Workspace folders">
+          {workspaceFolders.map((entry) => (
+            <SwitchRow
+              key={entry.root}
+              label={entry.root}
+              description={formatFileCount(entry.fileCount)}
+              leading={<span className="cg-root-swatch" style={{ background: entry.color }} />}
+              checked={!filters.hiddenFolders.includes(entry.root)}
+              onChange={() => {
+                onChange({
+                  ...filters,
+                  hiddenFolders: toggleHiddenFolder(filters.hiddenFolders, entry.root),
+                });
+              }}
+            />
+          ))}
+        </SidebarSection>
+      )}
 
       <SidebarSection title="Quick filters">
         <SwitchRow

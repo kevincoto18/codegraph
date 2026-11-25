@@ -55,19 +55,45 @@ describe('isHostToWebviewMessage', () => {
     [
       {
         type: 'options',
-        options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'auto' },
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
       },
     ],
     [
       {
         type: 'options',
-        options: { collapseMode: 'auto', folderViewMode: 'always', scrollBehavior: 'auto' },
+        options: {
+          collapseMode: 'auto',
+          folderViewMode: 'always',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
       },
     ],
     [
       {
         type: 'options',
-        options: { collapseMode: 'never', folderViewMode: 'never', scrollBehavior: 'auto' },
+        options: {
+          collapseMode: 'never',
+          folderViewMode: 'never',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'always',
+          scrollBehavior: 'pan',
+          workspaceRoots: ['api', 'web'],
+        },
       },
     ],
   ])('accepts %j', (message) => {
@@ -89,14 +115,24 @@ describe('isHostToWebviewMessage', () => {
     [
       {
         type: 'options',
-        options: { collapseMode: 'sometimes', folderViewMode: 'auto', scrollBehavior: 'auto' },
+        options: {
+          collapseMode: 'sometimes',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
       },
     ],
     [{ type: 'options', options: { collapseMode: 'always' } }],
     [
       {
         type: 'options',
-        options: { collapseMode: 'always', folderViewMode: 'maybe', scrollBehavior: 'auto' },
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'maybe',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
       },
     ],
     [
@@ -106,6 +142,39 @@ describe('isHostToWebviewMessage', () => {
       },
     ],
     [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: ['a/b'],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: [''],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: 'api',
+        },
+      },
+    ],
     [{ type: 'options' }],
     [{ type: 'options', options: [] }],
   ])('rejects %j', (message) => {

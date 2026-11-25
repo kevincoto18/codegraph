@@ -121,7 +121,14 @@ describe('toFlowElements', () => {
       width: FILE_NODE_WIDTH,
       height: getFileNodeHeight(2),
       style: { '--cg-folder-color': assignFolderColors(['src/a.ts', 'src/b.ts']).get('src') },
-      data: { label: 'a.ts', filePath: 'src/a.ts', line: 1, functionCount: 2, collapsed: false },
+      data: {
+        label: 'a.ts',
+        filePath: 'src/a.ts',
+        line: 1,
+        functionCount: 2,
+        collapsed: false,
+        tooltip: 'src/a.ts',
+      },
     });
   });
 
