@@ -20,12 +20,21 @@ export type CollapseMode = 'always' | 'auto' | 'never';
 /** Whether the graph is shown as nested folders. */
 export type FolderViewMode = 'always' | 'auto' | 'never';
 
+/**
+ * What scrolling with two fingers or the mouse wheel does: `auto` zooms with a
+ * mouse wheel and pans with a touchpad, `pan` always pans and `zoom` always
+ * zooms. Pinching and Ctrl + wheel always zoom.
+ */
+export type ScrollBehavior = 'auto' | 'pan' | 'zoom';
+
 /** View preferences chosen in the extension settings. */
 export interface ViewOptions {
   /** Initial collapse state of file containers. */
   readonly collapseMode: CollapseMode;
   /** Whether files are grouped into folder containers. */
   readonly folderViewMode: FolderViewMode;
+  /** What the mouse wheel and two-finger scrolling do. */
+  readonly scrollBehavior: ScrollBehavior;
 }
 
 /** Messages sent from the extension host to the webview. */
@@ -110,6 +119,9 @@ export const COLLAPSE_MODES: readonly CollapseMode[] = ['always', 'auto', 'never
 
 /** All valid folder view modes, used for runtime validation. */
 export const FOLDER_VIEW_MODES: readonly FolderViewMode[] = ['always', 'auto', 'never'];
+
+/** Every valid {@link ScrollBehavior}. */
+export const SCROLL_BEHAVIORS: readonly ScrollBehavior[] = ['auto', 'pan', 'zoom'];
 
 /**
  * Checks whether a value is a non-null, non-array object.
@@ -237,7 +249,8 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
       return (
         isRecord(value.options) &&
         COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode) &&
-        FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode)
+        FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode) &&
+        SCROLL_BEHAVIORS.includes(value.options.scrollBehavior as ScrollBehavior)
       );
     case 'focus':
     case 'reveal':

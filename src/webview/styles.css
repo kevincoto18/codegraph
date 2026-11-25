@@ -1532,3 +1532,16 @@ body {
 .cg-result .cg-result__kind {
   width: 34px;
 }
+
+/* Space held: dragging anywhere pans the canvas, even over nodes. */
+.cg-space-pan .react-flow__node {
+  pointer-events: none;
+}
+
+.cg-space-pan .react-flow__pane {
+  cursor: grab;
+}
+
+.cg-space-pan .react-flow__pane.dragging {
+  cursor: grabbing;
+}

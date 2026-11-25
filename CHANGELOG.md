@@ -4,6 +4,17 @@ All notable changes to CodeGraph Map are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Touchpad navigation**: two fingers pan the graph and pinching zooms; a mouse
+  wheel still zooms. New setting `codegraph.scrollBehavior` (`auto`, `pan`,
+  `zoom`).
+- **Keyboard navigation**: arrows pan (faster with Shift), `+` / `-` zoom, `0`
+  fits the graph; hold **Space** and drag to pan even over nodes; Shift + wheel
+  pans sideways.
+
 ## [0.1.0] - 2026-11-24
 
 First public release.

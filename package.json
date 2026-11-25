@@ -120,6 +120,21 @@
             "Never group files into folders: show every file at the top level."
           ],
           "description": "Whether files are grouped into nested folder containers that expand on demand."
+        },
+        "codegraph.scrollBehavior": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "pan",
+            "zoom"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "A mouse wheel zooms; two fingers on a touchpad pan the graph. Pinch to zoom.",
+            "The mouse wheel and two-finger scrolling always pan the graph. Ctrl + wheel or pinch to zoom.",
+            "The mouse wheel and two-finger scrolling always zoom (Shift + wheel pans)."
+          ],
+          "description": "What the mouse wheel and two-finger touchpad scrolling do in the graph."
         }
       }
     },

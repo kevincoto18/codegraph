@@ -3,9 +3,11 @@ import { Background, Controls, MiniMap, Panel, ReactFlow } from '@xyflow/react';
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
 
+import type { ScrollBehavior } from '../shared';
 import { MIN_ZOOM, computeFitViewport, shouldHideEdges, useLowDetail } from './canvasOptions';
 import type { CodeGraphFlowEdge, CodeGraphFlowNode } from './flowTypes';
 import { nodeTypes } from './nodes/nodeTypes';
+import { useCanvasNavigation } from './useCanvasNavigation';
 
 /** Props of {@link GraphCanvas}. */
 interface GraphCanvasProps {
@@ -35,6 +37,8 @@ interface GraphCanvasProps {
   readonly folderColors: boolean;
   /** Floating settings panel, rendered at the top left. */
   readonly panel: ReactNode;
+  /** What the mouse wheel and two-finger scrolling do. */
+  readonly scrollBehavior: ScrollBehavior;
 }
 
 /** Shared empty edge list used while edges are hidden. */
@@ -55,7 +59,8 @@ const TOOLBAR_HEIGHT = 40;
 
 /**
  * Presentational React Flow canvas: zoom, pan, file dragging, minimap and
- * controls. State lives in `GraphView`. When zoomed out, the `cg-lod` class
+ * controls; wheel, touchpad and keyboard navigation come from
+ * `useCanvasNavigation`. State lives in `GraphView`. When zoomed out, the `cg-lod` class
  * switches edges and labels to a cheaper low-detail style, and very large
  * edge sets are not drawn until the user zooms in.
  *
@@ -77,6 +82,7 @@ export function GraphCanvas({
   showMinimap,
   folderColors,
   panel,
+  scrollBehavior,
 }: GraphCanvasProps): JSX.Element {
   // Mount at the final zoom (see computeFitViewport) instead of fitting afterwards.
   const [initialViewport] = useState(
@@ -86,12 +92,14 @@ export function GraphCanvas({
   );
   const lowDetail = useLowDetail();
   const edgesHidden = shouldHideEdges(lowDetail, edges.length);
+  const { spacePanning } = useCanvasNavigation(scrollBehavior);
   return (
     <ReactFlow
       className={[
         lowDetail ? 'cg-lod' : '',
         folderColors ? 'cg-colors' : '',
         animate ? 'cg-animate' : '',
+        spacePanning ? 'cg-space-pan' : '',
       ]
         .join(' ')
         .trim()}
@@ -106,6 +114,8 @@ export function GraphCanvas({
       onMoveStart={onMoveStart}
       onMoveEnd={onMoveEnd}
       zoomOnDoubleClick={false}
+      nodesDraggable={!spacePanning}
+      panActivationKeyCode={null}
       nodesConnectable={false}
       edgesFocusable={false}
       onlyRenderVisibleElements

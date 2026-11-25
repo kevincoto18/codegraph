@@ -77,7 +77,7 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   sessionId: 0,
   outOfSync: false,
   lastChange: null,
-  options: { collapseMode: 'always', folderViewMode: 'auto' },
+  options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'auto' },
   focusRequest: null,
   revealRequest: null,
   preferences: null,

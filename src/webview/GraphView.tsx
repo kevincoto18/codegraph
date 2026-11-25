@@ -7,6 +7,7 @@ import type {
   AnalysisState,
   CollapseMode,
   FolderViewMode,
+  ScrollBehavior,
   ConnectionFilters,
   GraphSnapshot,
   NodeFilters,
@@ -81,6 +82,8 @@ interface GraphViewProps {
   readonly collapseMode: CollapseMode;
   /** Whether files are grouped into folders; changing it resets the view. */
   readonly folderViewMode: FolderViewMode;
+  /** What the mouse wheel and two-finger scrolling do. */
+  readonly scrollBehavior: ScrollBehavior;
   /** Focus asked by the host and not applied yet. */
   readonly focusRequest: FocusRequest | null;
   /** Called once a host focus request has been applied. */
@@ -205,6 +208,7 @@ function GraphViewContent({
   lastChange,
   collapseMode,
   folderViewMode,
+  scrollBehavior,
   focusRequest,
   onFocusHandled,
   revealRequest,
@@ -1267,6 +1271,7 @@ function GraphViewContent({
           showMinimap={showMinimap}
           folderColors={folderColorsEnabled}
           panel={panel}
+          scrollBehavior={scrollBehavior}
         />
         {contextMenu !== null && (
           <ContextMenu

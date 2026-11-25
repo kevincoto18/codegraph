@@ -52,9 +52,24 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'preferences', preferences: DEFAULT_VIEW_PREFERENCES }],
     [{ type: 'status', state: 'analyzing' }],
     [{ type: 'status', state: 'error', message: 'boom' }],
-    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
-    [{ type: 'options', options: { collapseMode: 'auto', folderViewMode: 'always' } }],
-    [{ type: 'options', options: { collapseMode: 'never', folderViewMode: 'never' } }],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'auto' },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'auto', folderViewMode: 'always', scrollBehavior: 'auto' },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'never', folderViewMode: 'never', scrollBehavior: 'auto' },
+      },
+    ],
   ])('accepts %j', (message) => {
     expect(isHostToWebviewMessage(message)).toBe(true);
   });
@@ -71,9 +86,26 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'preferences', preferences: null }],
     [{ type: 'status', state: 'done' }],
     [{ type: 'status', state: 'error', message: 42 }],
-    [{ type: 'options', options: { collapseMode: 'sometimes', folderViewMode: 'auto' } }],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'sometimes', folderViewMode: 'auto', scrollBehavior: 'auto' },
+      },
+    ],
     [{ type: 'options', options: { collapseMode: 'always' } }],
-    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'maybe' } }],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'always', folderViewMode: 'maybe', scrollBehavior: 'auto' },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'fly' },
+      },
+    ],
+    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
     [{ type: 'options' }],
     [{ type: 'options', options: [] }],
   ])('rejects %j', (message) => {

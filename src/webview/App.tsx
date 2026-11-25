@@ -86,6 +86,7 @@ export function App(): JSX.Element {
           lastChange={lastChange}
           collapseMode={options.collapseMode}
           folderViewMode={options.folderViewMode}
+          scrollBehavior={options.scrollBehavior}
           focusRequest={pendingFocus}
           onFocusHandled={markFocusHandled}
           revealRequest={pendingReveal}

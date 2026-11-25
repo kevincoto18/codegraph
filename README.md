@@ -64,17 +64,18 @@ and choose **Show Connections**.
 | Reload / reopen          | After a window reload the graph panel reopens by itself, with the same zoom and position, opened folders and files, focus and search (also when switching tabs)                                                                                                                                                                                                                                               |
 | Several folders          | In a multi-root workspace every folder is analyzed in one graph, each under a top-level folder named after it; adding or removing a folder updates the graph                                                                                                                                                                                                                                                  |
 | Full rescan              | **Refresh**                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Zoom / pan / move files  | Mouse wheel · drag the background · drag a file header                                                                                                                                                                                                                                                                                                                                                        |
+| Zoom / pan / move files  | **Mouse:** wheel zooms, Shift + wheel pans sideways, drag the background to pan · **Touchpad:** two fingers pan, pinch zooms · **Keyboard:** arrows pan (Shift: faster), `+` / `-` zoom, `0` fits the graph · hold **Space** and drag to pan even over nodes · drag a file header to move it                                                                                                                  |
 | Motion                   | Nodes slide to their new place after expanding or collapsing; large expansions appear progressively without freezing the view · going to a function (search, editor sync, focus) zooms in close to it, even inside a large file; tall files are shown from their header · when the editor opens beside the graph, the graph stays centered and the node you clicked stays in view                             |
 
 Logs are written to the **CodeGraph** output channel (`Ctrl+Shift+U`).
 
 ### Settings
 
-| Setting                       | Values                      | Default  | Effect                                                                        |
-| ----------------------------- | --------------------------- | -------- | ----------------------------------------------------------------------------- |
-| `codegraph.collapseByDefault` | `always` · `auto` · `never` | `always` | Whether files start collapsed (`auto`: above 400 functions)                   |
-| `codegraph.folderView`        | `auto` · `always` · `never` | `auto`   | Group files into nested folders that open on demand (`auto`: above 300 files) |
+| Setting                       | Values                      | Default  | Effect                                                                                                                                                            |
+| ----------------------------- | --------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codegraph.collapseByDefault` | `always` · `auto` · `never` | `always` | Whether files start collapsed (`auto`: above 400 functions)                                                                                                       |
+| `codegraph.folderView`        | `auto` · `always` · `never` | `auto`   | Group files into nested folders that open on demand (`auto`: above 300 files)                                                                                     |
+| `codegraph.scrollBehavior`    | `auto` · `pan` · `zoom`     | `auto`   | What the wheel and two-finger scrolling do: `auto` zooms with a mouse wheel and pans with a touchpad; `pan` always pans (Ctrl + wheel zooms); `zoom` always zooms |
 
 ## Languages
 

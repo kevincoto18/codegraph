@@ -21,12 +21,14 @@ export type {
   GraphInitMessage,
   HostToWebview,
   MetricSample,
+  ScrollBehavior,
   ViewOptions,
   WebviewToHost,
 } from './messages';
 export {
   COLLAPSE_MODES,
   FOLDER_VIEW_MODES,
+  SCROLL_BEHAVIORS,
   MAX_METRIC_SAMPLES,
   createGraphInitMessages,
   isHostToWebviewMessage,
