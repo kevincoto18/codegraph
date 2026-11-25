@@ -6,6 +6,8 @@ All notable changes to CodeGraph Map are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-25
+
 ### Added
 
 - **Review changes (PR review mode)**: command **CodeGraph: Review Changes**
@@ -79,4 +81,6 @@ First public release.
 - The panel **reopens after a window reload** with the same view.
 - Respects `files.exclude` and `.gitignore`.
 
+[Unreleased]: https://github.com/kevincoto18/codegraph/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kevincoto18/codegraph/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kevincoto18/codegraph/releases/tag/v0.1.0
