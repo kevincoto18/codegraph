@@ -18,6 +18,8 @@ export interface FileNodeData extends NavigableNodeData {
   readonly functionCount: number;
   /** Whether the file's functions are hidden. */
   readonly collapsed: boolean;
+  /** Path shown on hover (`api › src/app.ts` in a multi-root workspace). */
+  readonly tooltip: string;
 }
 
 /** Data of a function node. */
@@ -36,6 +38,12 @@ export interface FolderNodeData extends Record<string, unknown> {
   readonly fileCount: number;
   /** Whether the folder's content is hidden. */
   readonly collapsed: boolean;
+  /** Whether the folder is a workspace folder of a multi-root workspace. */
+  readonly isWorkspaceRoot: boolean;
+  /** Languages of a workspace folder (`TS`, `PY`…); empty for other folders. */
+  readonly languages: readonly string[];
+  /** Path shown on hover (`api › src/services` in a multi-root workspace). */
+  readonly tooltip: string;
 }
 
 /** Folder container node: holds sub-folders and files. */

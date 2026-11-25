@@ -1,9 +1,9 @@
 name: CI
 
+# Runs on pull requests from dev into main (the release path).
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -11,6 +11,7 @@ permissions:
 jobs:
   checks:
     name: Typecheck, lint, unit tests and build
+    if: github.head_ref == 'dev'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

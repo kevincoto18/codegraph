@@ -4,7 +4,9 @@ import { useMemo, useState } from 'react';
 import type { NodeFilters, RelPath } from '../shared';
 import { MAX_EXCLUDE_PATTERNS } from '../shared';
 import { SidebarSection, SwitchRow } from './controls';
+import type { WorkspaceColorEntry } from './folderColors';
 import { Icon } from './icons';
+import { formatFileCount } from './nodes/FolderNode';
 import type { FolderEntry } from './nodeFilters';
 import {
   compileExcludePattern,
@@ -16,6 +18,26 @@ import {
 /** Most folders listed at once; a search narrows larger lists. */
 const MAX_LISTED_FOLDERS = 200;
 
+/** "Unused code" section: switch, counts and the list of candidates. */
+export interface UnusedCodePanel {
+  readonly enabled: boolean;
+  readonly onToggle: (enabled: boolean) => void;
+  /** Unused functions and files (counted only while enabled). */
+  readonly functionCount: number;
+  readonly fileCount: number;
+  /** Candidates to list, functions first. */
+  readonly items: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly detail: string;
+  }[];
+  /** Shows a candidate on the canvas. */
+  readonly onGoTo: (nodeId: string) => void;
+}
+
+/** Most unused candidates listed. */
+const MAX_LISTED_UNUSED = 100;
+
 /** Props of {@link FiltersTab}. */
 interface FiltersTabProps {
   readonly filters: NodeFilters;
@@ -24,6 +46,10 @@ interface FiltersTabProps {
   readonly folders: readonly FolderEntry[];
   /** Color of each folder that directly contains files. */
   readonly folderColors: ReadonlyMap<RelPath, string>;
+  /** Workspace folders with their colors (multi-root); empty with one folder. */
+  readonly workspaceFolders: readonly WorkspaceColorEntry[];
+  /** Unused code detection. */
+  readonly unused: UnusedCodePanel;
   /** Files hidden by the filters. */
   readonly hiddenFiles: number;
   /** Functions hidden by the filters. */
@@ -71,6 +97,8 @@ export function FiltersTab({
   onChange,
   folders,
   folderColors,
+  workspaceFolders,
+  unused,
   hiddenFiles,
   hiddenFunctions,
 }: FiltersTabProps): JSX.Element {
@@ -149,6 +177,65 @@ export function FiltersTab({
           </button>
         )}
       </div>
+
+      {workspaceFolders.length > 0 && (
+        <SidebarSection title="Workspace folders">
+          {workspaceFolders.map((entry) => (
+            <SwitchRow
+              key={entry.root}
+              label={entry.root}
+              description={formatFileCount(entry.fileCount)}
+              leading={<span className="cg-root-swatch" style={{ background: entry.color }} />}
+              checked={!filters.hiddenFolders.includes(entry.root)}
+              onChange={() => {
+                onChange({
+                  ...filters,
+                  hiddenFolders: toggleHiddenFolder(filters.hiddenFolders, entry.root),
+                });
+              }}
+            />
+          ))}
+        </SidebarSection>
+      )}
+
+      <SidebarSection title="Unused code">
+        <SwitchRow
+          label="Mark unused code"
+          description="Functions never called and files nothing uses (static analysis)"
+          checked={unused.enabled}
+          onChange={unused.onToggle}
+        />
+        {unused.enabled && (
+          <>
+            <p className="cg-side-hint">
+              {unused.functionCount} functions · {unused.fileCount} files. Entry points, tests and
+              code reached dynamically (reflection, frameworks, JSX) may still be in use.
+            </p>
+            <ul className="cg-unused-list">
+              {unused.items.slice(0, MAX_LISTED_UNUSED).map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="cg-unused-item"
+                    title={item.detail}
+                    onClick={() => {
+                      unused.onGoTo(item.id);
+                    }}
+                  >
+                    <span className="cg-unused-item__name">{item.label}</span>
+                    <span className="cg-unused-item__detail">{item.detail}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {unused.items.length > MAX_LISTED_UNUSED && (
+              <p className="cg-side-hint">
+                +{unused.items.length - MAX_LISTED_UNUSED} more marked on the canvas.
+              </p>
+            )}
+          </>
+        )}
+      </SidebarSection>
 
       <SidebarSection title="Quick filters">
         <SwitchRow

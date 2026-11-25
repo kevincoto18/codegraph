@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FOLDER_PALETTE,
+  WORKSPACE_PALETTE,
   assignFolderColors,
   directFolderOf,
+  lighterShade,
   listFolderColors,
+  listWorkspaceColors,
 } from './folderColors';
 
 describe('folder colors', () => {
@@ -58,5 +61,37 @@ describe('folder colors', () => {
       ['src/b', 1],
     ]);
     expect(entries[0]?.color).toBe(assignFolderColors(files).get('src/a'));
+  });
+});
+
+describe('workspace folder colors', () => {
+  const files = [
+    'web/src/app.ts',
+    'web/src/services/user.ts',
+    'web/src/services/auth.ts',
+    'web/index.ts',
+    'api/internal/db/repo.go',
+  ];
+
+  it('colors everything inside a workspace folder after it', () => {
+    const colors = assignFolderColors(files, ['web', 'api']);
+    const [webColor = '', apiColor = ''] = WORKSPACE_PALETTE;
+    expect(colors.get('web')).toBe(webColor);
+    expect(colors.get('web/src')).toBe(lighterShade(webColor));
+    expect(colors.get('web/src/services')).toBe(lighterShade(webColor));
+    expect(colors.get('api')).toBe(apiColor);
+    expect(colors.get('api/internal/db')).toBe(lighterShade(apiColor));
+  });
+
+  it('lists the workspace folders in workspace order with their largest folders', () => {
+    expect(listWorkspaceColors(files, ['web', 'api'])).toEqual([
+      {
+        root: 'web',
+        color: WORKSPACE_PALETTE[0],
+        fileCount: 4,
+        folders: ['src/services', 'src'],
+      },
+      { root: 'api', color: WORKSPACE_PALETTE[1], fileCount: 1, folders: ['internal/db'] },
+    ]);
   });
 });

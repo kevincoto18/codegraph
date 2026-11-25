@@ -21,7 +21,10 @@ export type IconName =
   | 'expand'
   | 'expandAll'
   | 'collapseAll'
-  | 'relayout';
+  | 'relayout'
+  | 'download'
+  | 'gitCompare'
+  | 'openFile';
 
 /** Paths of each icon, in a 16×16 view box. */
 const ICON_PATHS: Readonly<Record<IconName, ReactNode>> = {
@@ -93,6 +96,17 @@ const ICON_PATHS: Readonly<Record<IconName, ReactNode>> = {
       <rect x="9" y="9" width="5" height="5" rx="1" />
       <path d="M9.5 4.5H12a1 1 0 0 1 1 1V7M6.5 11.5H4a1 1 0 0 1-1-1V9" />
     </>
+  ),
+  download: <path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 11v2.5h11V11" />,
+  gitCompare: (
+    <>
+      <circle cx="4" cy="3.5" r="1.75" />
+      <circle cx="12" cy="12.5" r="1.75" />
+      <path d="M4 5.25V12a1 1 0 0 0 1 1h3.5M6.5 11 8.5 13l-2 2M12 10.75V4a1 1 0 0 0-1-1H7.5M9.5 5 7.5 3l2-2" />
+    </>
+  ),
+  openFile: (
+    <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" />
   ),
 };
 

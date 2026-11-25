@@ -7,10 +7,14 @@ import type {
   AnalysisState,
   CollapseMode,
   FolderViewMode,
+  ScrollBehavior,
   ConnectionFilters,
   GraphSnapshot,
   NodeFilters,
+  GraphNode,
   RelPath,
+  ReviewMode,
+  ReviewState,
   ViewPreferences,
 } from '../shared';
 import {
@@ -40,7 +44,7 @@ import { filterEdges } from './edgeFilters';
 import type { FocusDirection, FocusResult } from './focus';
 import { computeFocus, getFocusFitIds, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
 import type { FolderTree } from './folders';
-import { buildFolderTree, isFolderViewEnabled } from './folders';
+import { FOLDER_ID_PREFIX, buildFolderTree, isFolderId, isFolderViewEnabled } from './folders';
 import { searchClassOfEdge, searchClassOfNode, toSearchResult, withFolderContext } from './search';
 import type { SearchHit } from './searchIndex';
 import { buildSearchIndex, searchIndex } from './searchIndex';
@@ -56,12 +60,33 @@ import {
 } from './progressiveMount';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
-import { assignFolderColors, listFolderColors } from './folderColors';
+import { assignFolderColors, listFolderColors, listWorkspaceColors } from './folderColors';
 import type { ViewLayoutInputs, ViewLayoutState } from './viewLayout';
 import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
 import type { SavedView } from './viewState';
 import { describeCollapseChanges, restoreCollapsed } from './viewState';
+import type { PathBarState } from './PathBar';
+import { PathBar } from './PathBar';
+import { HoverCard } from './HoverCard';
+import { captureBox, captureVisibleArea } from './captureImage';
+import { findUnusedCode } from './deadCode';
+import type { ExportItem, ExportRequest } from './ExportTab';
+import { selectFiles, subgraphOfFiles, toMermaid, exportFileName } from './exportGraph';
+import { postToHost } from './vscodeApi';
+import { useFunctionDetails } from './useFunctionDetails';
+import type { GraphPath } from './pathFinder';
+import { findShortestPath, getPathDisplay, pathClassOfNode, pathStepKey } from './pathFinder';
+import {
+  computeImpact,
+  formatReviewSummary,
+  getReviewDisplay,
+  indexUsers,
+  listReviewEntries,
+  reviewChangedIds,
+  reviewClassOfEdge,
+  reviewClassOfNode,
+} from './review';
 import type { Box } from './viewportMath';
 import {
   CONTAINER_ZOOM,
@@ -81,6 +106,10 @@ interface GraphViewProps {
   readonly collapseMode: CollapseMode;
   /** Whether files are grouped into folders; changing it resets the view. */
   readonly folderViewMode: FolderViewMode;
+  /** What the mouse wheel and two-finger scrolling do. */
+  readonly scrollBehavior: ScrollBehavior;
+  /** Workspace folder names when several are open (multi-root); empty otherwise. */
+  readonly workspaceRoots: readonly string[];
   /** Focus asked by the host and not applied yet. */
   readonly focusRequest: FocusRequest | null;
   /** Called once a host focus request has been applied. */
@@ -103,6 +132,22 @@ interface GraphViewProps {
   readonly onRefresh: () => void;
   /** Opens a file at a 1-based line. */
   readonly onNavigate: (filePath: RelPath, line: number) => void;
+  /** Change review running, or `null`. */
+  readonly review: ReviewState | null;
+  /** Branches a review can compare with. */
+  readonly reviewBranches: readonly string[];
+  /** Picked base branch; empty to detect it. */
+  readonly reviewBranch: string;
+  /** Levels of callers and importers shown as affected by the review. */
+  readonly reviewDepth: number;
+  readonly onReviewDepthChange: (depth: number) => void;
+  /** Starts or refreshes a review, or stops it with `null`; `branch` picks the base. */
+  readonly onReviewRequest: (mode: ReviewMode | null, branch?: string) => void;
+  /** Pending request to show the Changes tab, by sequence. */
+  readonly reviewOpenRequest: number | null;
+  readonly onReviewOpenHandled: (sequence: number) => void;
+  /** Copies a text to the clipboard. */
+  readonly onCopyText: (text: string) => void;
 }
 
 /** Duration of viewport animations, in milliseconds. */
@@ -122,6 +167,12 @@ const NOTICE_MS = 6000;
 
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
+
+/** Time given to the canvas to render every node before an image is captured, in milliseconds. */
+const EXPORT_SETTLE_MS = 300;
+
+/** Time the pointer rests on a function before its hover card shows, in milliseconds. */
+const HOVER_CARD_DELAY_MS = 400;
 
 /** Quiet period before the view is saved, in milliseconds. */
 const VIEW_SAVE_DELAY_MS = 300;
@@ -172,10 +223,36 @@ function countFiles(snapshot: GraphSnapshot): number {
  *
  * @param snapshot - Graph snapshot.
  * @param folderView - Whether files are grouped into folders.
+ * @param workspaceRoots - Workspace folder names (multi-root), kept as top-level folders.
  * @returns The folder tree, or `null`.
  */
-function folderTreeOf(snapshot: GraphSnapshot, folderView: boolean): FolderTree | null {
-  return folderView ? buildFolderTree(snapshot.nodes) : null;
+function folderTreeOf(
+  snapshot: GraphSnapshot,
+  folderView: boolean,
+  workspaceRoots: readonly string[],
+): FolderTree | null {
+  return folderView ? buildFolderTree(snapshot.nodes, workspaceRoots) : null;
+}
+
+/**
+ * Tells whether every file of a folder is part of an export, so the folder
+ * itself is drawn around them.
+ *
+ * @param path - Folder path.
+ * @param fileIds - Files of the export.
+ * @param snapshot - Graph.
+ * @returns `true` when the folder has files and all of them are exported.
+ */
+function isFolderFullySelected(
+  path: string,
+  fileIds: ReadonlySet<string>,
+  snapshot: GraphSnapshot,
+): boolean {
+  const prefix = `${path}/`;
+  const files = snapshot.nodes.filter(
+    (node) => node.kind === 'file' && node.filePath.startsWith(prefix),
+  );
+  return files.length > 0 && files.every((file) => fileIds.has(file.id));
 }
 
 /**
@@ -205,6 +282,8 @@ function GraphViewContent({
   lastChange,
   collapseMode,
   folderViewMode,
+  scrollBehavior,
+  workspaceRoots,
   focusRequest,
   onFocusHandled,
   revealRequest,
@@ -217,11 +296,18 @@ function GraphViewContent({
   errorMessage,
   onRefresh,
   onNavigate,
+  review,
+  reviewBranches,
+  reviewBranch,
+  reviewDepth,
+  onReviewDepthChange,
+  onReviewRequest,
+  reviewOpenRequest,
+  onReviewOpenHandled,
+  onCopyText,
 }: GraphViewProps): JSX.Element {
-  const { fitView, getZoom, getInternalNode, getViewport, setViewport } = useReactFlow<
-    CodeGraphFlowNode,
-    CodeGraphFlowEdge
-  >();
+  const { fitView, getZoom, getInternalNode, getViewport, setViewport, getNodes, getNodesBounds } =
+    useReactFlow<CodeGraphFlowNode, CodeGraphFlowEdge>();
   /** Canvas container, to know the size of the visible area. */
   const canvasRef = useRef<HTMLElement>(null);
   // Hidden files and functions never reach the layout.
@@ -235,15 +321,19 @@ function GraphViewContent({
     () =>
       assignFolderColors(
         fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+        workspaceRoots,
       ),
-    [fullSnapshot],
+    [fullSnapshot, workspaceRoots],
   );
   const edgeFilters = preferences.connections;
   // `auto` is decided once per graph, so live patches never switch the view.
   const [folderView, setFolderView] = useState(() =>
     isFolderViewEnabled(folderViewMode, countFiles(snapshot)),
   );
-  const folderTree = useMemo(() => folderTreeOf(snapshot, folderView), [snapshot, folderView]);
+  const folderTree = useMemo(
+    () => folderTreeOf(snapshot, folderView, workspaceRoots),
+    [snapshot, folderView, workspaceRoots],
+  );
   const [collapsedIds, setCollapsedIds] = useState(() =>
     restoreCollapsed(
       getInitialCollapsedIds(snapshot, collapseMode, folderTree),
@@ -261,7 +351,11 @@ function GraphViewContent({
     setAppliedModes({ collapseMode, folderViewMode });
     setFolderView(nextFolderView);
     setCollapsedIds(
-      getInitialCollapsedIds(snapshot, collapseMode, folderTreeOf(snapshot, nextFolderView)),
+      getInitialCollapsedIds(
+        snapshot,
+        collapseMode,
+        folderTreeOf(snapshot, nextFolderView, workspaceRoots),
+      ),
     );
   }
   const [layoutRequest, setLayoutRequest] = useState(0);
@@ -293,6 +387,26 @@ function GraphViewContent({
     savedView?.focus?.direction ?? 'both',
   );
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  /** Start of a path being picked ("Find path from here"), waiting for its destination. */
+  const [pathOrigin, setPathOrigin] = useState<string | null>(null);
+  /** Path shown on the canvas: its ends and the result (`null` when none was found). */
+  const [shownPath, setShownPath] = useState<{
+    readonly from: string;
+    readonly to: string;
+    readonly path: GraphPath | null;
+  } | null>(null);
+  /** Whether unused functions and files are marked (Filters → Unused code). */
+  const [markUnused, setMarkUnused] = useState(false);
+  /** Whether every node is rendered, not only the visible ones (image export). */
+  const [renderAll, setRenderAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  /** Function under the pointer whose hover card is shown, with its screen box. */
+  const [hovered, setHovered] = useState<{
+    readonly nodeId: string;
+    readonly anchor: { readonly left: number; readonly top: number; readonly bottom: number };
+  } | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const functionDetails = useFunctionDetails(fullSnapshot);
   /** Node highlighted because the editor cursor is on it (editor sync). */
   const [syncedId, setSyncedId] = useState<string | null>(null);
   /** Search result selected in the list, and whether it was shown on the canvas. */
@@ -399,10 +513,42 @@ function GraphViewContent({
     () => (focus === null ? null : getFocusedDisplayIds(current.nodes, focus, folderTree)),
     [focus, current.nodes, folderTree],
   );
+  const pathDisplay = useMemo(
+    () =>
+      shownPath?.path === null || shownPath === null
+        ? null
+        : getPathDisplay(current.nodes, shownPath.path),
+    [shownPath, current.nodes],
+  );
+  const unused = useMemo(
+    () => (markUnused ? findUnusedCode(snapshot) : null),
+    [markUnused, snapshot],
+  );
+  // Change review: what changed, what uses it, and how the canvas shows it.
+  const reviewResult = review?.status === 'ready' ? review.result : null;
+  const reviewing = reviewResult !== null;
+  const reviewUsers = useMemo(
+    () => (reviewing ? indexUsers(fullSnapshot) : null),
+    [reviewing, fullSnapshot],
+  );
+  const reviewImpact = useMemo(
+    () =>
+      reviewResult === null || reviewUsers === null
+        ? null
+        : computeImpact(reviewUsers, reviewChangedIds(reviewResult), reviewDepth),
+    [reviewResult, reviewUsers, reviewDepth],
+  );
+  const reviewDisplay = useMemo(
+    () => (reviewImpact === null ? null : getReviewDisplay(fullSnapshot, reviewImpact, folderTree)),
+    [reviewImpact, fullSnapshot, folderTree],
+  );
   const displayedNodes = useMemo(
     () =>
       nodeDecorator.apply(mountedNodes, (node) =>
         joinClassNames(
+          reviewClassOfNode(node.id, node.type, reviewDisplay),
+          unused?.ids.has(node.id) === true ? 'cg-unused' : undefined,
+          pathClassOfNode(node.id, pathDisplay),
           searchClassOfNode(node.id, search),
           highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
           focusedIds === null || focusedIds.has(node.id) ? undefined : 'cg-focus-dimmed',
@@ -420,12 +566,23 @@ function GraphViewContent({
       activeFocusId,
       syncedId,
       currentMatchId,
+      pathDisplay,
+      unused,
+      reviewDisplay,
     ],
   );
-  const visibleEdges = useMemo(
-    () => filterEdges(mountedEdges, current.nodes, edgeFilters),
-    [mountedEdges, current.nodes, edgeFilters],
-  );
+  const visibleEdges = useMemo(() => {
+    const filtered = filterEdges(mountedEdges, current.nodes, edgeFilters);
+    if (pathDisplay === null) {
+      return filtered;
+    }
+    // The steps of a path stay visible even when their kind is filtered out.
+    const shown = new Set(filtered);
+    const steps = mountedEdges.filter(
+      (edge) => !shown.has(edge) && pathDisplay.steps.has(pathStepKey(edge.source, edge.target)),
+    );
+    return steps.length === 0 ? filtered : [...filtered, ...steps];
+  }, [mountedEdges, current.nodes, edgeFilters, pathDisplay]);
   const displayedEdges = useMemo(
     () =>
       edgeDecorator.apply(visibleEdges, (edge) =>
@@ -434,9 +591,15 @@ function GraphViewContent({
           focusedIds === null || (focusedIds.has(edge.source) && focusedIds.has(edge.target))
             ? undefined
             : 'cg-focus-dimmed',
+          pathDisplay === null
+            ? undefined
+            : pathDisplay.steps.has(pathStepKey(edge.source, edge.target))
+              ? 'cg-path-edge'
+              : 'cg-focus-dimmed',
+          reviewClassOfEdge(edge.source, edge.target, reviewDisplay),
         ),
       ),
-    [edgeDecorator, visibleEdges, search, focusedIds],
+    [edgeDecorator, visibleEdges, search, focusedIds, pathDisplay, reviewDisplay],
   );
   const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
   const summary = useMemo(() => summarizeGraph(fullSnapshot), [fullSnapshot]);
@@ -454,9 +617,15 @@ function GraphViewContent({
       ),
     [fullSnapshot],
   );
-  const folderColorOf = useMemo(
-    () => new Map(folderColorEntries.map((entry) => [entry.folder, entry.color])),
-    [folderColorEntries],
+  const workspaceColorEntries = useMemo(
+    () =>
+      workspaceRoots.length > 1
+        ? listWorkspaceColors(
+            fullSnapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.filePath),
+            workspaceRoots,
+          )
+        : [],
+    [fullSnapshot, workspaceRoots],
   );
 
   // Report each recomputed layout once (dragging nodes does not recompute it).
@@ -792,6 +961,72 @@ function GraphViewContent({
     [query, debouncedQuery, hits, searchData],
   );
 
+  /**
+   * Finds and shows the shortest path between two nodes: opens what hides
+   * it and frames it. Focus mode is left, as the path replaces it.
+   *
+   * @param from - Start node.
+   * @param to - End node.
+   */
+  const showPath = useCallback(
+    (from: string, to: string) => {
+      const path = findShortestPath(snapshot, from, to);
+      setPathOrigin(null);
+      setFocusId(null);
+      setShownPath({ from, to, path });
+      if (path === null) {
+        return;
+      }
+      const fit: FitViewOptions<CodeGraphFlowNode> = {
+        nodes: path.nodeIds.map((id) => ({ id })),
+        duration: VIEWPORT_ANIMATION_MS,
+        maxZoom: SEARCH_MAX_ZOOM,
+      };
+      const toExpand = [...getIdsToReveal(snapshot, folderTree, path.nodeIds)].filter((id) =>
+        collapsedIds.has(id),
+      );
+      if (toExpand.length > 0) {
+        pendingFitRef.current = fit;
+        setCollapsedIds((collapsed) => {
+          const next = new Set(collapsed);
+          toExpand.forEach((id) => next.delete(id));
+          return next;
+        });
+        return;
+      }
+      void fitView(fit);
+    },
+    [snapshot, folderTree, collapsedIds, fitView],
+  );
+
+  /** Leaves path mode (picking or showing). */
+  const clearPath = useCallback(() => {
+    setPathOrigin(null);
+    setShownPath(null);
+  }, []);
+
+  // Escape leaves path mode.
+  useEffect(() => {
+    if (pathOrigin === null && shownPath === null) {
+      return undefined;
+    }
+    /**
+     * Clears the path on Escape (not while typing).
+     *
+     * @param event - Keyboard event.
+     */
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (event.key === 'Escape' && target?.tagName !== 'INPUT') {
+        clearPath();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [pathOrigin, shownPath, clearPath]);
+
   const zoomToMatches = useCallback(() => {
     const latest = latestHits();
     if (latest.length === 0) {
@@ -942,18 +1177,34 @@ function GraphViewContent({
 
   // While focusing, clicking another file or function moves the focus to it.
   const handleNodeClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
-    (_event, node) => {
+    (event, node) => {
       if (node.type === 'folder') {
         toggle(node.id);
+        return;
+      }
+      if (pathOrigin !== null) {
+        if (node.id !== pathOrigin) {
+          showPath(pathOrigin, node.id);
+        }
         return;
       }
       if (activeFocusId !== null && node.id !== activeFocusId) {
         enterFocus(node.id);
       }
+      // A file opens and closes its function list; Ctrl/Cmd + click (or its
+      // open button) opens the code. The second click of a double-click
+      // (focus mode) does not toggle again.
+      const opensCode = event.ctrlKey || event.metaKey;
+      if (node.type === 'file' && !opensCode && node.data.functionCount > 0) {
+        if (event.detail < 2) {
+          toggle(node.id);
+        }
+        return;
+      }
       lastNavigatedRef.current = { id: node.id, at: performance.now() };
       onNavigate(node.data.filePath, node.data.line);
     },
-    [onNavigate, toggle, activeFocusId, enterFocus],
+    [onNavigate, toggle, activeFocusId, enterFocus, pathOrigin, showPath],
   );
 
   const handleNodeContextMenu = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
@@ -963,19 +1214,25 @@ function GraphViewContent({
         node.type === 'folder'
           ? { kind: 'folder', nodeId: node.id }
           : { kind: 'node', nodeId: node.id, nodeType: node.type };
-      const items = getContextMenuItems(target, activeFocusId !== null);
+      const items = getContextMenuItems(target, activeFocusId !== null, {
+        origin: pathOrigin,
+        shown: shownPath !== null,
+      });
       setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
     },
-    [activeFocusId],
+    [activeFocusId, pathOrigin, shownPath],
   );
 
   const handlePaneContextMenu = useCallback(
     (event: MouseEvent | ReactMouseEvent) => {
       event.preventDefault();
-      const items = getContextMenuItems({ kind: 'pane' }, activeFocusId !== null);
+      const items = getContextMenuItems({ kind: 'pane' }, activeFocusId !== null, {
+        origin: pathOrigin,
+        shown: shownPath !== null,
+      });
       setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
     },
-    [activeFocusId],
+    [activeFocusId, pathOrigin, shownPath],
   );
 
   const closeContextMenu = useCallback(() => {
@@ -1031,10 +1288,53 @@ function GraphViewContent({
 
   // While panning or zooming, a lighter style is used (see `.cg-moving` in styles.css).
   // The class is toggled on the DOM directly so moving never re-renders the view.
+  /** Hides the hover card and cancels a pending one. */
+  const hideHoverCard = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHovered(null);
+  }, []);
+
+  const handleNodeMouseEnter = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
+    (event, node) => {
+      hideHoverCard();
+      if (node.type !== 'function') {
+        return;
+      }
+      const element = (event.currentTarget as Element | null) ?? null;
+      hoverTimerRef.current = setTimeout(() => {
+        hoverTimerRef.current = null;
+        const box = element?.getBoundingClientRect();
+        if (box === undefined) {
+          return;
+        }
+        functionDetails.request(node.id);
+        setHovered({
+          nodeId: node.id,
+          anchor: { left: box.left, top: box.top, bottom: box.bottom },
+        });
+      }, HOVER_CARD_DELAY_MS);
+    },
+    [hideHoverCard, functionDetails],
+  );
+
+  // A pending hover card never outlives the view.
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current !== null) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const handleMoveStart = useCallback(() => {
     setContextMenu(null);
+    hideHoverCard();
     canvasRef.current?.classList.add('cg-moving');
-  }, []);
+  }, [hideHoverCard]);
 
   const handleMoveEnd = useCallback(() => {
     canvasRef.current?.classList.remove('cg-moving');
@@ -1061,9 +1361,21 @@ function GraphViewContent({
         case 'exitFocus':
           setFocusId(null);
           break;
+        case 'pathFrom':
+          setShownPath(null);
+          setPathOrigin(action.nodeId);
+          break;
+        case 'pathTo':
+          if (pathOrigin !== null) {
+            showPath(pathOrigin, action.nodeId);
+          }
+          break;
+        case 'clearPath':
+          clearPath();
+          break;
       }
     },
-    [enterFocus, snapshot, onNavigate, toggle],
+    [enterFocus, snapshot, onNavigate, toggle, pathOrigin, showPath, clearPath],
   );
 
   const handleNodeDoubleClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
@@ -1168,7 +1480,311 @@ function GraphViewContent({
     setMinimapPreference(showMinimap ? 'off' : 'on');
   }, [showMinimap]);
 
-  const actions = useMemo<GraphActions>(() => ({ toggle }), [toggle]);
+  const pathBarState = useMemo((): PathBarState | null => {
+    const labels = new Map(fullSnapshot.nodes.map((node) => [node.id, node.label]));
+    /**
+     * Name of a node for the path bar.
+     *
+     * @param id - Node id.
+     * @returns Its label, or the id when it no longer exists.
+     */
+    const labelOf = (id: string): string => labels.get(id) ?? id;
+    if (pathOrigin !== null) {
+      return { kind: 'picking', origin: labelOf(pathOrigin) };
+    }
+    if (shownPath === null) {
+      return null;
+    }
+    if (shownPath.path === null) {
+      return { kind: 'none', from: labelOf(shownPath.from), to: labelOf(shownPath.to) };
+    }
+    return {
+      kind: 'found',
+      steps: shownPath.path.nodeIds.map((id) => ({ id, label: labelOf(id) })),
+      reversed: shownPath.path.reversed,
+      level: shownPath.path.level,
+    };
+  }, [pathOrigin, shownPath, fullSnapshot]);
+
+  const hoveredCard = useMemo(() => {
+    if (hovered === null || contextMenu !== null) {
+      return null;
+    }
+    const node = fullSnapshot.nodes.find((item) => item.id === hovered.nodeId);
+    if (node?.kind !== 'function') {
+      return null;
+    }
+    const location = [
+      `${node.filePath} · line ${String(node.line)}`,
+      node.functionKind,
+      node.exported ? 'exported' : undefined,
+    ]
+      .filter((part): part is string => part !== undefined)
+      .join(' · ');
+    return (
+      <HoverCard
+        anchor={hovered.anchor}
+        name={node.qualifiedName}
+        location={location}
+        details={functionDetails.details.get(node.id)}
+      />
+    );
+  }, [hovered, contextMenu, fullSnapshot, functionDetails.details]);
+
+  const reviewTab = useMemo(() => {
+    const nodesById = new Map<string, GraphNode>(fullSnapshot.nodes.map((node) => [node.id, node]));
+    const entries =
+      reviewResult === null || reviewUsers === null
+        ? []
+        : listReviewEntries(reviewResult, nodesById, reviewUsers, reviewDepth);
+    return {
+      state: review,
+      branches: reviewBranches,
+      branch: reviewBranch,
+      depth: reviewDepth,
+      onDepthChange: onReviewDepthChange,
+      onRequest: onReviewRequest,
+      entries,
+      impact: reviewImpact,
+      outside: reviewResult === null ? [] : reviewResult.files.filter((file) => !file.inGraph),
+      onGoTo: bringIntoView,
+      onOpen: (nodeId: string) => {
+        const node = nodesById.get(nodeId);
+        if (node !== undefined) {
+          onNavigate(node.filePath, node.line);
+        }
+      },
+      onCopySummary: () => {
+        if (reviewResult !== null && reviewImpact !== null) {
+          onCopyText(formatReviewSummary(reviewResult, entries, reviewImpact, reviewDepth));
+        }
+      },
+    };
+  }, [
+    fullSnapshot,
+    review,
+    reviewBranches,
+    reviewBranch,
+    reviewResult,
+    reviewUsers,
+    reviewImpact,
+    reviewDepth,
+    onReviewDepthChange,
+    onReviewRequest,
+    bringIntoView,
+    onNavigate,
+    onCopyText,
+  ]);
+
+  const unusedPanel = useMemo(() => {
+    const items =
+      unused === null
+        ? []
+        : [
+            ...unused.functions.map((fn) => ({
+              id: fn.id,
+              label: fn.qualifiedName,
+              detail: `${fn.filePath} · line ${String(fn.line)}${fn.exported ? ' · exported' : ''}`,
+            })),
+            ...unused.files.map((file) => ({
+              id: file.id,
+              label: file.label,
+              detail: `${file.filePath} · file nothing uses`,
+            })),
+          ];
+    return {
+      enabled: markUnused,
+      onToggle: setMarkUnused,
+      functionCount: unused?.functions.length ?? 0,
+      fileCount: unused?.files.length ?? 0,
+      items,
+      onGoTo: bringIntoView,
+    };
+  }, [unused, markUnused, bringIntoView]);
+
+  const exportItems = useMemo((): ExportItem[] => {
+    const files = snapshot.nodes
+      .filter((node) => node.kind === 'file')
+      .map((node) => ({ path: node.filePath, kind: 'file' as const, fileCount: 1 }));
+    const folderItems = folders.map((folder) => ({
+      path: folder.path,
+      kind: 'folder' as const,
+      fileCount: folder.fileCount,
+    }));
+    return [...folderItems, ...files.sort((a, b) => a.path.localeCompare(b.path))];
+  }, [snapshot, folders]);
+
+  /**
+   * Files covered by an export: all, the ones on screen or the chosen ones.
+   *
+   * @param request - Export asked by the user.
+   * @returns File ids.
+   */
+  const exportFileIds = useCallback(
+    (request: ExportRequest): Set<string> => {
+      if (request.scope === 'selected') {
+        return selectFiles(snapshot, request.selection);
+      }
+      const all = snapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.id);
+      if (request.scope === 'all') {
+        return new Set(all);
+      }
+      // Only visible nodes are rendered, so the DOM tells what is on screen.
+      const onScreen = new Set<string>();
+      const rendered = canvasRef.current?.querySelectorAll('.react-flow__node') ?? [];
+      const fileOf = new Map(
+        snapshot.nodes.map((node) => [node.id, node.kind === 'function' ? node.fileId : node.id]),
+      );
+      for (const element of rendered) {
+        const id = element.getAttribute('data-id') ?? '';
+        const file = fileOf.get(id);
+        if (file !== undefined) {
+          onScreen.add(file);
+        } else if (isFolderId(id)) {
+          const prefix = `${id.slice(FOLDER_ID_PREFIX.length)}/`;
+          all
+            .filter((fileId) => fileId.startsWith(prefix))
+            .forEach((fileId) => onScreen.add(fileId));
+        }
+      }
+      return onScreen;
+    },
+    [snapshot],
+  );
+
+  const estimateExport = useCallback(
+    (request: ExportRequest) => {
+      const files = exportFileIds(request);
+      const functions = snapshot.nodes.filter(
+        (node) => node.kind === 'function' && files.has(node.fileId),
+      ).length;
+      return { files: files.size, functions };
+    },
+    [exportFileIds, snapshot],
+  );
+
+  /**
+   * Captures an image of the whole canvas or of chosen files and folders:
+   * renders every node at zoom 1, captures the box around the kept nodes and
+   * puts the view back.
+   *
+   * @param format - Image format.
+   * @param fileIds - Files to keep, or `null` for everything.
+   * @returns The image as a `data:` URL, or `null` when nothing is shown.
+   */
+  const captureNodes = useCallback(
+    async (format: 'png' | 'svg', fileIds: ReadonlySet<string> | null): Promise<string | null> => {
+      const viewportElement =
+        canvasRef.current?.querySelector<HTMLElement>('.react-flow__viewport') ?? null;
+      if (viewportElement === null) {
+        return null;
+      }
+      const saved = getViewport();
+      setRenderAll(true);
+      try {
+        await setViewport({ x: 0, y: 0, zoom: 1 });
+        await new Promise((resolve) => setTimeout(resolve, EXPORT_SETTLE_MS));
+        const nodes = getNodes().filter((node) => {
+          if (fileIds === null) {
+            return true;
+          }
+          if (node.type === 'folder') {
+            return isFolderFullySelected(node.data.path, fileIds, snapshot);
+          }
+          return fileIds.has(node.type === 'function' ? (node.parentId ?? '') : node.id);
+        });
+        if (nodes.length === 0) {
+          return null;
+        }
+        const keepNodes = fileIds === null ? null : new Set(nodes.map((node) => node.id));
+        const keepEdges =
+          keepNodes === null
+            ? null
+            : new Set(
+                displayedEdges
+                  .filter((edge) => keepNodes.has(edge.source) && keepNodes.has(edge.target))
+                  .map((edge) => edge.id),
+              );
+        return await captureBox(
+          viewportElement,
+          getNodesBounds(nodes),
+          format,
+          keepNodes,
+          keepEdges,
+        );
+      } finally {
+        setRenderAll(false);
+        void setViewport(saved);
+      }
+    },
+    [getViewport, setViewport, getNodes, getNodesBounds, displayedEdges, snapshot],
+  );
+
+  const runExport = useCallback(
+    (request: ExportRequest) => {
+      const fileIds = exportFileIds(request);
+      const fileName = exportFileName(request.format, request.scope);
+      if (request.format === 'mermaid') {
+        const text = toMermaid(subgraphOfFiles(snapshot, fileIds), {
+          level: request.level,
+          imports: edgeFilters.imports,
+          calls: edgeFilters.calls,
+        });
+        postToHost(
+          request.copy
+            ? { type: 'copy', text }
+            : { type: 'export', fileName, format: 'mermaid', data: text },
+        );
+        return;
+      }
+      const format = request.format;
+      if (request.scope === 'selected') {
+        // Open the folders that hide the chosen files before capturing them.
+        const toExpand = [...getIdsToReveal(snapshot, folderTree, fileIds)].filter((id) =>
+          collapsedIds.has(id),
+        );
+        if (toExpand.length > 0) {
+          setCollapsedIds((collapsed) => {
+            const next = new Set(collapsed);
+            toExpand.forEach((id) => next.delete(id));
+            return next;
+          });
+        }
+      }
+      setExporting(true);
+      const flow = canvasRef.current?.querySelector<HTMLElement>('.react-flow') ?? null;
+      const capture =
+        request.scope === 'view'
+          ? flow === null
+            ? Promise.resolve(null)
+            : captureVisibleArea(flow, format)
+          : captureNodes(format, request.scope === 'all' ? null : fileIds);
+      capture
+        .then((data) => {
+          if (data === null) {
+            setNotice('Nothing to export: open the files or folders you chose.');
+            return;
+          }
+          postToHost({ type: 'export', fileName, format, data });
+        })
+        .catch((error: unknown) => {
+          setNotice(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+        })
+        .finally(() => {
+          setExporting(false);
+        });
+    },
+    [exportFileIds, snapshot, edgeFilters, folderTree, collapsedIds, captureNodes],
+  );
+
+  const openNode = useCallback(
+    (nodeId: string, filePath: string, line: number) => {
+      lastNavigatedRef.current = { id: nodeId, at: performance.now() };
+      onNavigate(filePath, line);
+    },
+    [onNavigate],
+  );
+  const actions = useMemo<GraphActions>(() => ({ toggle, open: openNode }), [toggle, openNode]);
 
   const panel = (
     <Sidebar
@@ -1190,7 +1806,9 @@ function GraphViewContent({
         filters: preferences.nodes,
         onChange: setNodeFilters,
         folders,
-        folderColors: folderColorOf,
+        folderColors: folderColorMap,
+        workspaceFolders: workspaceColorEntries,
+        unused: unusedPanel,
         hiddenFiles: filtered.hiddenFiles,
         hiddenFunctions: filtered.hiddenFunctions,
       }}
@@ -1204,6 +1822,15 @@ function GraphViewContent({
         onDepthChange: setFocusDepth,
         onDirectionChange: setFocusDirection,
       }}
+      reviewTab={reviewTab}
+      reviewOpenRequest={reviewOpenRequest}
+      onReviewOpenHandled={onReviewOpenHandled}
+      exportTab={{
+        items: exportItems,
+        estimate: estimateExport,
+        onExport: runExport,
+        exporting,
+      }}
       view={{
         onExpandLevel: expandLevel,
         onExpandAll: expandAll,
@@ -1214,6 +1841,7 @@ function GraphViewContent({
         folderColorsEnabled,
         onToggleFolderColors: toggleFolderColors,
         folderColors: folderColorEntries,
+        workspaceColors: workspaceColorEntries,
         editorSync: preferences.editorSync,
         onEditorSyncChange: setEditorSync,
       }}
@@ -1247,6 +1875,10 @@ function GraphViewContent({
         </button>
       </StatusBar>
       <main className="cg-canvas" ref={canvasRef}>
+        {pathBarState !== null && (
+          <PathBar state={pathBarState} onStep={bringIntoView} onClose={clearPath} />
+        )}
+        {hoveredCard}
         {notice !== null && (
           <div className="cg-notice" role="status">
             {notice}
@@ -1259,6 +1891,8 @@ function GraphViewContent({
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
           onNodeContextMenu={handleNodeContextMenu}
+          onNodeMouseEnter={handleNodeMouseEnter}
+          onNodeMouseLeave={hideHoverCard}
           onPaneContextMenu={handlePaneContextMenu}
           onMoveStart={handleMoveStart}
           onMoveEnd={handleMoveEnd}
@@ -1267,6 +1901,8 @@ function GraphViewContent({
           showMinimap={showMinimap}
           folderColors={folderColorsEnabled}
           panel={panel}
+          scrollBehavior={scrollBehavior}
+          renderAll={renderAll}
         />
         {contextMenu !== null && (
           <ContextMenu

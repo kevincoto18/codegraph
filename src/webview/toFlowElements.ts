@@ -17,6 +17,7 @@ import type {
 } from './flowTypes';
 import { FOLDER_COLOR_PROPERTY, assignFolderColors, directFolderOf } from './folderColors';
 import type { FolderInfo, FolderTree } from './folders';
+import { formatWorkspacePath } from './folders';
 
 /** Width of a file container, in pixels. */
 export const FILE_NODE_WIDTH = 280;
@@ -97,6 +98,7 @@ export function toFlowElements(
     }
   }
 
+  const workspaceRoots = folderTree?.workspaceRoots ?? [];
   const colors =
     folderColors ?? assignFolderColors([...filesById.values()].map((file) => file.filePath));
   const nodes: CodeGraphFlowNode[] = [];
@@ -131,6 +133,7 @@ export function toFlowElements(
         collapsed,
         parentId,
         colors.get(directFolderOf(file.filePath)),
+        workspaceRoots,
       ),
     );
     visibleIdByNodeId.set(file.id, file.id);
@@ -153,7 +156,7 @@ export function toFlowElements(
     let contentHiddenBy = hiddenBy;
     if (hiddenBy === undefined) {
       const collapsed = collapsedIds.has(folder.id);
-      nodes.push(createFolderFlowNode(folder, collapsed, colors.get(folder.path)));
+      nodes.push(createFolderFlowNode(folder, collapsed, colors.get(folder.path), workspaceRoots));
       contentHiddenBy = collapsed ? folder.id : undefined;
     }
     for (const childId of folder.folderIds) {
@@ -200,12 +203,14 @@ export function toFlowElements(
  * @param folder - Folder of the hierarchy.
  * @param collapsed - Whether the content is hidden.
  * @param color - Folder color, if any.
+ * @param workspaceRoots - Workspace folder names (multi-root), for the tooltip.
  * @returns The folder container node, at the origin.
  */
 function createFolderFlowNode(
   folder: FolderInfo,
   collapsed: boolean,
   color: string | undefined,
+  workspaceRoots: readonly string[],
 ): FolderFlowNode {
   return {
     id: folder.id,
@@ -215,7 +220,15 @@ function createFolderFlowNode(
     height: FOLDER_HEADER_HEIGHT,
     ...(folder.parentId === null ? {} : { parentId: folder.parentId, extent: 'parent' as const }),
     ...folderColorStyle(color),
-    data: { label: folder.label, path: folder.path, fileCount: folder.fileCount, collapsed },
+    data: {
+      label: folder.label,
+      path: folder.path,
+      fileCount: folder.fileCount,
+      collapsed,
+      isWorkspaceRoot: folder.isWorkspaceRoot,
+      languages: folder.languages,
+      tooltip: formatWorkspacePath(folder.path, workspaceRoots),
+    },
   };
 }
 
@@ -227,6 +240,7 @@ function createFolderFlowNode(
  * @param collapsed - Whether the functions are hidden.
  * @param parentId - Folder that contains the file, if any.
  * @param color - Color of the file's folder, if any.
+ * @param workspaceRoots - Workspace folder names (multi-root), for the tooltip.
  * @returns The file container node, at the origin.
  */
 function createFileFlowNode(
@@ -235,6 +249,7 @@ function createFileFlowNode(
   collapsed: boolean,
   parentId: string | undefined,
   color: string | undefined,
+  workspaceRoots: readonly string[],
 ): FileFlowNode {
   return {
     id: file.id,
@@ -244,7 +259,14 @@ function createFileFlowNode(
     height: collapsed ? FILE_HEADER_HEIGHT : getFileNodeHeight(functionCount),
     ...(parentId === undefined ? {} : { parentId, extent: 'parent' as const }),
     ...folderColorStyle(color),
-    data: { label: file.label, filePath: file.filePath, line: file.line, functionCount, collapsed },
+    data: {
+      label: file.label,
+      filePath: file.filePath,
+      line: file.line,
+      functionCount,
+      collapsed,
+      tooltip: formatWorkspacePath(file.filePath, workspaceRoots),
+    },
   };
 }
 

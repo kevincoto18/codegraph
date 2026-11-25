@@ -1532,3 +1532,711 @@ body {
 .cg-result .cg-result__kind {
   width: 34px;
 }
+
+/* Space held: dragging anywhere pans the canvas, even over nodes. */
+.cg-space-pan .react-flow__node {
+  pointer-events: none;
+}
+
+.cg-space-pan .react-flow__pane {
+  cursor: grab;
+}
+
+.cg-space-pan .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+/* ---------- Workspace folders (multi-root) ---------- */
+
+.cg-folder--root {
+  border-width: 1.5px;
+  border-style: solid;
+}
+
+.cg-folder--root .cg-folder__name {
+  font-size: 14px;
+}
+
+.cg-folder__root-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--vscode-focusBorder);
+}
+
+.cg-colors .cg-folder--root {
+  border-color: var(--cg-folder-color);
+  background: color-mix(in srgb, var(--cg-folder-color) 8%, transparent);
+}
+
+.cg-colors .cg-folder--root.cg-folder--collapsed {
+  background: color-mix(
+    in srgb,
+    var(--cg-folder-color) 14%,
+    var(--vscode-editorWidget-background, var(--vscode-sideBar-background))
+  );
+}
+
+.cg-colors .cg-folder--root > .cg-folder__header {
+  border-radius: 9px 9px 0 0;
+  background: color-mix(in srgb, var(--cg-folder-color) 16%, transparent);
+}
+
+.cg-colors .cg-folder--root.cg-folder--collapsed > .cg-folder__header {
+  border-radius: 9px;
+  background: transparent;
+}
+
+.cg-colors .cg-folder--root .cg-folder__root-icon {
+  color: var(--cg-folder-color);
+}
+
+/* The colored border already marks a workspace folder: no stripe. */
+.cg-colors .cg-folder--root::before {
+  display: none;
+}
+
+.cg-colors .cg-folder--root > .cg-folder__header {
+  padding-left: 10px;
+}
+
+.cg-folder--root .cg-lang {
+  flex: none;
+}
+
+/* Legend and filters of a multi-root workspace. */
+.cg-color-legend__group {
+  list-style: none;
+}
+
+.cg-color-legend__name--root {
+  font-weight: 600;
+}
+
+.cg-color-legend__folders {
+  padding-left: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-root-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* ---------- File header: click opens / closes the function list ---------- */
+
+.cg-file__header {
+  cursor: pointer;
+}
+
+.cg-file__header:hover {
+  background: color-mix(in srgb, var(--vscode-list-hoverBackground, #fff1) 60%, transparent);
+  border-radius: 6px;
+}
+
+.cg-file__open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.cg-file:hover .cg-file__open,
+.cg-file__open:focus-visible {
+  opacity: 1;
+}
+
+.cg-file__open:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/* ---------- Path between two nodes ---------- */
+
+.react-flow__node.cg-path-node .cg-file,
+.react-flow__node.cg-path-node .cg-fn {
+  border-color: var(--vscode-charts-orange, #d18616);
+  box-shadow: 0 0 0 1.5px var(--vscode-charts-orange, #d18616);
+}
+
+.react-flow__node.cg-path-end .cg-file,
+.react-flow__node.cg-path-end .cg-fn {
+  box-shadow:
+    0 0 0 2px var(--vscode-charts-orange, #d18616),
+    0 0 12px color-mix(in srgb, var(--vscode-charts-orange, #d18616) 60%, transparent);
+}
+
+.react-flow__edge.cg-path-edge .react-flow__edge-path {
+  stroke: var(--vscode-charts-orange, #d18616);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 4;
+  animation: cg-path-flow 0.8s linear infinite;
+}
+
+@keyframes cg-path-flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.cg-path-edge .react-flow__edge-path {
+    animation: none;
+  }
+}
+
+.cg-path-bar {
+  position: absolute;
+  z-index: 11;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(80%, 900px);
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--vscode-charts-orange, #d18616);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  font-size: 12px;
+}
+
+.cg-path-bar__text,
+.cg-path-bar__meta {
+  white-space: nowrap;
+}
+
+.cg-path-bar__meta {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-path-bar__steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.cg-path-bar__steps li {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.cg-path-bar__arrow {
+  margin: 0 4px;
+  color: var(--vscode-charts-orange, #d18616);
+}
+
+.cg-path-bar__step {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cg-path-bar__step:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-path-bar__close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cg-path-bar__close:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/* ---------- Hover card of a function ---------- */
+
+.cg-hover-card {
+  position: fixed;
+  z-index: 30;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545));
+  border-radius: 6px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.cg-hover-card__signature {
+  display: block;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--vscode-foreground);
+}
+
+.cg-hover-card__doc {
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+
+.cg-hover-card__doc--muted,
+.cg-hover-card__meta {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-hover-card__meta {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+/* ---------- Export tab ---------- */
+
+.cg-export-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cg-export-list {
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cg-export-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cg-export-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-export-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-export-item__name--folder {
+  font-weight: 600;
+}
+
+.cg-export-item__count {
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+/* ---------- Unused code ---------- */
+
+.cg-unused-list {
+  max-height: 260px;
+  margin: 6px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cg-unused-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cg-unused-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-unused-item__name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+.cg-unused-item__detail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+/* Marked on the canvas: a dashed outline and an "unused" tag. */
+.react-flow__node.cg-unused .cg-fn,
+.react-flow__node.cg-unused .cg-file {
+  outline: 1.5px dashed var(--vscode-editorWarning-foreground, #cca700);
+  outline-offset: 1px;
+}
+
+.react-flow__node.cg-unused .cg-fn::after,
+.react-flow__node.cg-unused .cg-file__name::after {
+  content: 'unused';
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 25%, transparent);
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-family: var(--vscode-font-family);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---------- Change review (Changes tab) ---------- */
+
+.cg-graph,
+.cg-app {
+  --cg-review-changed: var(--vscode-charts-red, #f14c4c);
+  --cg-review-direct: var(--vscode-charts-orange, #d18616);
+}
+
+.react-flow__node.cg-review-changed .cg-file,
+.react-flow__node.cg-review-changed .cg-fn {
+  border-color: var(--cg-review-changed);
+  box-shadow:
+    0 0 0 2px var(--cg-review-changed),
+    0 0 14px color-mix(in srgb, var(--cg-review-changed) 45%, transparent);
+}
+
+.react-flow__node.cg-review-direct .cg-file,
+.react-flow__node.cg-review-direct .cg-fn {
+  border-color: var(--cg-review-direct);
+  box-shadow: 0 0 0 1.5px var(--cg-review-direct);
+}
+
+.react-flow__node.cg-review-indirect .cg-file,
+.react-flow__node.cg-review-indirect .cg-fn {
+  border-color: color-mix(in srgb, var(--cg-review-direct) 55%, transparent);
+  border-style: dashed;
+}
+
+.react-flow__node.cg-review-indirect {
+  opacity: 0.75;
+}
+
+.react-flow__node.cg-review-folder--changed .cg-folder {
+  border-color: color-mix(in srgb, var(--cg-review-changed) 70%, transparent);
+}
+
+.react-flow__edge.cg-review-edge .react-flow__edge-path {
+  stroke: var(--cg-review-direct);
+  stroke-width: 2;
+}
+
+.cg-review-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 4px;
+  text-align: center;
+}
+
+.cg-review-intro__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: var(--vscode-input-background, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-review-intro__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.cg-review-intro .cg-button-row {
+  align-self: stretch;
+  margin-top: 8px;
+}
+
+.cg-review-problem {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f85149) 12%, transparent);
+  color: var(--vscode-errorForeground, #f85149);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cg-review-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cg-review-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  border-radius: 6px;
+  background: var(--vscode-input-background, rgba(128, 128, 128, 0.15));
+}
+
+.cg-review-stat__value {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cg-review-stat__label {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+}
+
+.cg-review-stat--changed {
+  background: color-mix(in srgb, var(--cg-review-changed) 16%, transparent);
+  color: var(--cg-review-changed);
+}
+
+.cg-review-stat--affected {
+  background: color-mix(in srgb, var(--cg-review-direct) 16%, transparent);
+  color: var(--cg-review-direct);
+}
+
+.cg-review-legend {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.cg-review-legend__item::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.cg-review-legend__item--changed::before {
+  border: 2px solid var(--cg-review-changed);
+}
+
+.cg-review-legend__item--direct::before {
+  border: 2px solid var(--cg-review-direct);
+}
+
+.cg-review-legend__item--indirect::before {
+  border: 2px dashed color-mix(in srgb, var(--cg-review-direct) 55%, transparent);
+}
+
+.cg-review-list {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cg-review-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 2px;
+  border-radius: 4px;
+}
+
+.cg-review-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-review-row__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cg-review-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+.cg-review-row__kind {
+  display: inline-block;
+  width: 22px;
+  color: var(--cg-review-changed);
+  font-style: italic;
+  font-weight: 700;
+}
+
+.cg-review-row__kind--file {
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: -0.05em;
+}
+
+.cg-review-row__detail {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.cg-review-row__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-review-row__risk {
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cg-review-direct) 22%, transparent);
+  color: var(--cg-review-direct);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.cg-review-row__risk.is-zero {
+  background: var(--vscode-input-background, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-review-lines {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cg-review-lines__added {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+}
+
+.cg-review-lines__removed {
+  color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+}
+
+.cg-review-outside {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+
+.cg-review-outside li {
+  display: flex;
+  gap: 6px;
+  padding: 2px 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-review-outside__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-review-branch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cg-review-branch__label {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.cg-select {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, transparent));
+  border-radius: 4px;
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  font: inherit;
+}
+
+.cg-select:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}

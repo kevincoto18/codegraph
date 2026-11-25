@@ -3,7 +3,7 @@
  */
 import { useCallback, useEffect, useReducer } from 'react';
 
-import type { RelPath, ViewPreferences } from '../shared';
+import type { RelPath, ReviewMode, ViewPreferences } from '../shared';
 import type { GraphChannelState } from './graphChannel';
 import { INITIAL_GRAPH_CHANNEL_STATE, reduceHostMessage } from './graphChannel';
 import { SnapshotAssembler } from './snapshotAssembler';
@@ -17,6 +17,10 @@ export interface GraphChannel extends GraphChannelState {
   readonly navigate: (filePath: RelPath, line: number) => void;
   /** Asks the host to store new view preferences for the workspace. */
   readonly savePreferences: (preferences: ViewPreferences) => void;
+  /** Starts or refreshes a change review, or stops it with `null`; `branch` picks the base. */
+  readonly requestReview: (mode: ReviewMode | null, branch?: string) => void;
+  /** Copies a text to the clipboard (through the host). */
+  readonly copyText: (text: string) => void;
 }
 
 /**
@@ -66,5 +70,13 @@ export function useGraphChannel(): GraphChannel {
     postToHost({ type: 'preferences', preferences });
   }, []);
 
-  return { ...state, refresh, navigate, savePreferences };
+  const requestReview = useCallback((mode: ReviewMode | null, branch?: string) => {
+    postToHost(branch === undefined ? { type: 'review', mode } : { type: 'review', mode, branch });
+  }, []);
+
+  const copyText = useCallback((text: string) => {
+    postToHost({ type: 'copy', text });
+  }, []);
+
+  return { ...state, refresh, navigate, savePreferences, requestReview, copyText };
 }

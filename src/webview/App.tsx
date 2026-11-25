@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import type { ViewPreferences } from '../shared';
 import { DEFAULT_VIEW_PREFERENCES } from '../shared';
 import { GraphView } from './GraphView';
+import { DEFAULT_REVIEW_DEPTH } from './review';
 import { StatusBar } from './StatusBar';
 import { useGraphChannel } from './useGraphChannel';
 import { loadSavedView, saveView } from './vscodeApi';
@@ -26,10 +27,18 @@ export function App(): JSX.Element {
     focusRequest,
     revealRequest,
     preferences: storedPreferences,
+    review,
+    reviewOpenRequest,
+    reviewBranches,
+    reviewBranch,
     refresh,
     navigate,
     savePreferences,
+    requestReview,
+    copyText,
   } = useGraphChannel();
+  // Kept here so a new snapshot (which remounts the view) keeps the chosen depth.
+  const [reviewDepth, setReviewDepth] = useState(DEFAULT_REVIEW_DEPTH);
   // Edited locally for instant feedback; the host stores every change and
   // sends the stored copy on (re)connection.
   const [preferences, setPreferences] = useState<ViewPreferences>(
@@ -55,6 +64,11 @@ export function App(): JSX.Element {
     focusRequest !== null && focusRequest.sequence > handledFocus ? focusRequest : null;
   const markFocusHandled = useCallback((sequence: number) => {
     setHandledFocus((handled) => Math.max(handled, sequence));
+  }, []);
+  const [handledReviewOpen, setHandledReviewOpen] = useState(0);
+  const pendingReviewOpen = reviewOpenRequest > handledReviewOpen ? reviewOpenRequest : null;
+  const markReviewOpenHandled = useCallback((sequence: number) => {
+    setHandledReviewOpen((handled) => Math.max(handled, sequence));
   }, []);
   const [handledReveal, setHandledReveal] = useState(0);
   const pendingReveal =
@@ -86,6 +100,8 @@ export function App(): JSX.Element {
           lastChange={lastChange}
           collapseMode={options.collapseMode}
           folderViewMode={options.folderViewMode}
+          scrollBehavior={options.scrollBehavior}
+          workspaceRoots={options.workspaceRoots}
           focusRequest={pendingFocus}
           onFocusHandled={markFocusHandled}
           revealRequest={pendingReveal}
@@ -98,6 +114,15 @@ export function App(): JSX.Element {
           errorMessage={errorMessage}
           onRefresh={refresh}
           onNavigate={navigate}
+          review={review}
+          reviewBranches={reviewBranches}
+          reviewBranch={reviewBranch}
+          reviewDepth={reviewDepth}
+          onReviewDepthChange={setReviewDepth}
+          onReviewRequest={requestReview}
+          reviewOpenRequest={pendingReviewOpen}
+          onReviewOpenHandled={markReviewOpenHandled}
+          onCopyText={copyText}
         />
       )}
     </div>

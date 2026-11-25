@@ -194,7 +194,7 @@ describe('wrapTallColumns', () => {
       position: { x, y },
       width: 100,
       height: 100,
-      data: { label: id, filePath: id, line: 1, functionCount: 0, collapsed: true },
+      data: { label: id, filePath: id, line: 1, functionCount: 0, collapsed: true, tooltip: id },
     };
   }
 

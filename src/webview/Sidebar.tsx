@@ -6,17 +6,23 @@ import { SidebarSection, Segmented, SwitchRow } from './controls';
 import type { SegmentOption } from './controls';
 import type { FocusDirection } from './focus';
 import { FOCUS_DEPTHS, FOCUS_DIRECTIONS } from './focus';
-import type { FolderColorEntry } from './folderColors';
+import type { ExportTabProps } from './ExportTab';
+import type { UnusedCodePanel } from './FiltersTab';
+import { ExportTab } from './ExportTab';
+import type { FolderColorEntry, WorkspaceColorEntry } from './folderColors';
 import { FiltersTab } from './FiltersTab';
 import type { IconName } from './icons';
 import { Icon } from './icons';
 import type { FolderEntry } from './nodeFilters';
 import { countActiveNodeFilters } from './nodeFilters';
+import type { ReviewTabProps } from './ReviewTab';
+import { ReviewTab } from './ReviewTab';
 import type { SearchTabProps } from './SearchTab';
 import { SearchTab } from './SearchTab';
 
 /** Tabs of the sidebar. */
-export type SidebarTab = 'search' | 'connections' | 'filters' | 'focus' | 'view';
+export type SidebarTab =
+  'search' | 'connections' | 'filters' | 'focus' | 'view' | 'review' | 'export';
 
 /** Most folders listed in the color legend. */
 const MAX_LISTED_FOLDER_COLORS = 12;
@@ -32,6 +38,10 @@ export interface SidebarFilters {
   readonly folders: readonly FolderEntry[];
   /** Color of each folder that directly contains files. */
   readonly folderColors: ReadonlyMap<RelPath, string>;
+  /** Workspace folders with their colors (multi-root); empty with one folder. */
+  readonly workspaceFolders: readonly WorkspaceColorEntry[];
+  /** Unused code detection. */
+  readonly unused: UnusedCodePanel;
   readonly hiddenFiles: number;
   readonly hiddenFunctions: number;
 }
@@ -63,6 +73,8 @@ export interface SidebarView {
   readonly onToggleFolderColors: () => void;
   /** Folders and their colors, largest first (legend). */
   readonly folderColors: readonly FolderColorEntry[];
+  /** Workspace folders and their colors (multi-root legend); empty with one folder. */
+  readonly workspaceColors: readonly WorkspaceColorEntry[];
   readonly editorSync: boolean;
   readonly onEditorSyncChange: (enabled: boolean) => void;
 }
@@ -75,6 +87,12 @@ interface SidebarProps {
   readonly filters: SidebarFilters;
   readonly focus: SidebarFocus;
   readonly view: SidebarView;
+  readonly exportTab: ExportTabProps;
+  readonly reviewTab: ReviewTabProps;
+  /** Pending request to show the Changes tab ("Review Changes" command), by sequence. */
+  readonly reviewOpenRequest: number | null;
+  /** Called once the Changes tab was shown for a request. */
+  readonly onReviewOpenHandled: (sequence: number) => void;
 }
 
 /** Rail entries, in display order. */
@@ -88,6 +106,8 @@ const TABS: readonly {
   { id: 'filters', icon: 'filter', title: 'Filters' },
   { id: 'focus', icon: 'focus', title: 'Focus' },
   { id: 'view', icon: 'view', title: 'View' },
+  { id: 'review', icon: 'gitCompare', title: 'Changes' },
+  { id: 'export', icon: 'download', title: 'Export' },
 ];
 
 /** Options of the focus depth selector. */
@@ -157,6 +177,24 @@ function RailButton({ icon, title, active, onClick, badge }: RailButtonProps): J
 }
 
 /**
+ * Badge of the Changes tab: the number of changed functions and files while
+ * a review runs.
+ *
+ * @param review - Changes tab state.
+ * @returns The badge, or `null` without review.
+ */
+function reviewBadge(review: ReviewTabProps): ReactNode {
+  if (review.state === null) {
+    return null;
+  }
+  return review.impact === null || review.impact.changed === 0 ? (
+    <span className="cg-rail__dot" />
+  ) : (
+    Math.min(review.impact.changed, 99)
+  );
+}
+
+/**
  * Settings and filters sidebar: a vertical rail of icons (Search,
  * Connections, Filters, Focus, View) that opens a panel next to it. Clicking
  * the active icon, the close button or pressing Escape inside closes the
@@ -167,7 +205,19 @@ function RailButton({ icon, title, active, onClick, badge }: RailButtonProps): J
  */
 export function Sidebar(props: SidebarProps): JSX.Element {
   const [tab, setTab] = useState<SidebarTab | null>(null);
-  const { search, connections, onConnectionsChange, filters, focus, view } = props;
+  const { search, connections, onConnectionsChange, filters, focus, view, exportTab, reviewTab } =
+    props;
+  const { reviewOpenRequest, onReviewOpenHandled } = props;
+
+  // The "Review Changes" command opens the Changes tab.
+  useEffect(() => {
+    if (reviewOpenRequest === null) {
+      return;
+    }
+    onReviewOpenHandled(reviewOpenRequest);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTab('review');
+  }, [reviewOpenRequest, onReviewOpenHandled]);
 
   // Ctrl/Cmd+F opens the search tab from anywhere in the webview.
   useEffect(() => {
@@ -204,6 +254,8 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     filters: activeFilters === 0 ? null : activeFilters,
     focus: focus.label === null ? null : <span className="cg-rail__dot" />,
     view: view.editorSync ? <span className="cg-rail__dot" /> : null,
+    review: reviewBadge(reviewTab),
+    export: null,
   };
   const current = TABS.find((entry) => entry.id === tab);
 
@@ -297,6 +349,8 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                 onChange={filters.onChange}
                 folders={filters.folders}
                 folderColors={filters.folderColors}
+                workspaceFolders={filters.workspaceFolders}
+                unused={filters.unused}
                 hiddenFiles={filters.hiddenFiles}
                 hiddenFunctions={filters.hiddenFunctions}
               />
@@ -357,6 +411,9 @@ export function Sidebar(props: SidebarProps): JSX.Element {
               </>
             )}
 
+            {current.id === 'review' && <ReviewTab {...reviewTab} />}
+            {current.id === 'export' && <ExportTab {...exportTab} />}
+
             {current.id === 'view' && (
               <>
                 <SidebarSection title="Layout">
@@ -409,31 +466,61 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                     onChange={view.onToggleFolderColors}
                   />
                 </SidebarSection>
-                {view.folderColorsEnabled && view.folderColors.length > 0 && (
+                {view.folderColorsEnabled && view.workspaceColors.length > 0 && (
                   <SidebarSection title="Color legend">
                     <ul className="cg-color-legend">
-                      {view.folderColors.slice(0, MAX_LISTED_FOLDER_COLORS).map((entry) => (
-                        <li
-                          key={entry.folder}
-                          className="cg-color-legend__item"
-                          title={entry.folder}
-                        >
-                          <span
-                            className="cg-color-legend__swatch"
-                            style={{ background: entry.color }}
-                          />
-                          <span className="cg-color-legend__name">{entry.folder}</span>
-                          <span className="cg-color-legend__count">{entry.fileCount}</span>
+                      {view.workspaceColors.map((entry) => (
+                        <li key={entry.root} className="cg-color-legend__group">
+                          <div className="cg-color-legend__item" title={entry.root}>
+                            <span
+                              className="cg-color-legend__swatch"
+                              style={{ background: entry.color }}
+                            />
+                            <span className="cg-color-legend__name cg-color-legend__name--root">
+                              {entry.root}
+                            </span>
+                            <span className="cg-color-legend__count">{entry.fileCount}</span>
+                          </div>
+                          {entry.folders.length > 0 && (
+                            <div
+                              className="cg-color-legend__folders"
+                              title={entry.folders.join(', ')}
+                            >
+                              {entry.folders.join(' · ')}
+                            </div>
+                          )}
                         </li>
                       ))}
-                      {view.folderColors.length > MAX_LISTED_FOLDER_COLORS && (
-                        <li className="cg-side-hint">
-                          +{view.folderColors.length - MAX_LISTED_FOLDER_COLORS} more folders
-                        </li>
-                      )}
                     </ul>
                   </SidebarSection>
                 )}
+                {view.folderColorsEnabled &&
+                  view.workspaceColors.length === 0 &&
+                  view.folderColors.length > 0 && (
+                    <SidebarSection title="Color legend">
+                      <ul className="cg-color-legend">
+                        {view.folderColors.slice(0, MAX_LISTED_FOLDER_COLORS).map((entry) => (
+                          <li
+                            key={entry.folder}
+                            className="cg-color-legend__item"
+                            title={entry.folder}
+                          >
+                            <span
+                              className="cg-color-legend__swatch"
+                              style={{ background: entry.color }}
+                            />
+                            <span className="cg-color-legend__name">{entry.folder}</span>
+                            <span className="cg-color-legend__count">{entry.fileCount}</span>
+                          </li>
+                        ))}
+                        {view.folderColors.length > MAX_LISTED_FOLDER_COLORS && (
+                          <li className="cg-side-hint">
+                            +{view.folderColors.length - MAX_LISTED_FOLDER_COLORS} more folders
+                          </li>
+                        )}
+                      </ul>
+                    </SidebarSection>
+                  )}
               </>
             )}
           </div>

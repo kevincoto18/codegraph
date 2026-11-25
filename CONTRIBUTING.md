@@ -26,12 +26,31 @@ Both configurations build first and start the host with `--disable-extensions`,
 so only CodeGraph is loaded. In the new window run **`CodeGraph: Open Graph`**
 from the Command Palette (`Ctrl+Shift+P`).
 
+## Common commands
+
+The [`justfile`](justfile) groups the npm scripts (install
+[just](https://github.com/casey/just) once, e.g. `winget install Casey.Just`).
+Run `just` to list the recipes:
+
+| Command                 | Does                                          |
+| ----------------------- | --------------------------------------------- |
+| `just build`            | Build the extension and the webview           |
+| `just check`            | Lint, format check, type-check and unit tests |
+| `just test`             | Unit tests                                    |
+| `just test integration` | Integration tests in a real VS Code window    |
+| `just test full`        | Both                                          |
+| `just package`          | Build the `.vsix`                             |
+| `just release 0.2.0`    | Set the version for a release                 |
+
 ## Quality bar
 
 - English code, TSDoc on every function, strict TypeScript.
 - `npm run typecheck`, `npm run lint` (zero warnings), `npm run format:check`
-  and `npm test` must pass; CI runs them on every push, plus the integration
-  tests.
+  and `npm test` must pass; CI runs them on pull requests from `dev` into `main`,
+  plus the integration tests.
+- A pre-commit hook (Husky + lint-staged, installed by `npm install`) lints
+  and formats the staged files, then runs `npm run typecheck` and `npm test`.
+  Integration tests run in CI, on pull requests from `dev` into `main`.
 - Keep pure modules free of `vscode` imports so they stay unit-testable.
 
 ## Architecture

@@ -173,7 +173,15 @@ describe('folder collapse helpers', () => {
       id: 'folder:src',
       type: 'folder',
       position: { x: 0, y: 0 },
-      data: { label: 'src', path: 'src', fileCount: 2, collapsed: true },
+      data: {
+        label: 'src',
+        path: 'src',
+        fileCount: 2,
+        collapsed: true,
+        isWorkspaceRoot: false,
+        languages: [],
+        tooltip: 'src',
+      },
     } as const satisfies CodeGraphFlowNode;
     /**
      * Creates a collapsed file node.
@@ -186,7 +194,7 @@ describe('folder collapse helpers', () => {
       id,
       type: 'file',
       position: { x: 0, y: 0 },
-      data: { label: id, filePath: id, line: 1, functionCount, collapsed: true },
+      data: { label: id, filePath: id, line: 1, functionCount, collapsed: true, tooltip: id },
     });
     expect(getNextLevelToExpand([folder, file('top.ts', 1)])).toEqual(['folder:src']);
     expect(getNextLevelToExpand([file('a.ts', 2), file('empty.ts', 0)])).toEqual(['a.ts']);

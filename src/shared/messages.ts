@@ -7,6 +7,8 @@
  */
 import type { ViewPreferences } from './preferences';
 import { isViewPreferences } from './preferences';
+import type { ReviewMode, ReviewState } from './review';
+import { REVIEW_MODES, isReviewState } from './review';
 import type { GraphPatch, GraphSnapshot, RelPath } from './types';
 import type { ChunkLimits, WireGraphChunk } from './wire';
 import { DEFAULT_CHUNK_LIMITS, encodeSnapshot } from './wire';
@@ -20,12 +22,26 @@ export type CollapseMode = 'always' | 'auto' | 'never';
 /** Whether the graph is shown as nested folders. */
 export type FolderViewMode = 'always' | 'auto' | 'never';
 
+/**
+ * What scrolling with two fingers or the mouse wheel does: `auto` zooms with a
+ * mouse wheel and pans with a touchpad, `pan` always pans and `zoom` always
+ * zooms. Pinching and Ctrl + wheel always zoom.
+ */
+export type ScrollBehavior = 'auto' | 'pan' | 'zoom';
+
 /** View preferences chosen in the extension settings. */
 export interface ViewOptions {
   /** Initial collapse state of file containers. */
   readonly collapseMode: CollapseMode;
   /** Whether files are grouped into folder containers. */
   readonly folderViewMode: FolderViewMode;
+  /** What the mouse wheel and two-finger scrolling do. */
+  readonly scrollBehavior: ScrollBehavior;
+  /**
+   * Top-level folder names of the workspace folders when several are open
+   * (multi-root), in workspace order; empty with a single folder.
+   */
+  readonly workspaceRoots: readonly string[];
 }
 
 /** Messages sent from the extension host to the webview. */
@@ -39,7 +55,44 @@ export type HostToWebview =
   /** Highlight and center the file or function under the editor cursor (editor sync). */
   | { readonly type: 'reveal'; readonly nodeId: string }
   /** Stored view preferences of the workspace. */
-  | { readonly type: 'preferences'; readonly preferences: ViewPreferences };
+  | { readonly type: 'preferences'; readonly preferences: ViewPreferences }
+  /**
+   * Changes under review and their state; `null` when the review was stopped.
+   * `open` asks the webview to show the Changes tab ("Review Changes" command).
+   */
+  | {
+      readonly type: 'review';
+      readonly state: ReviewState | null;
+      readonly open: boolean;
+      /** Branches the base can be picked from (local first, then remote). */
+      readonly branches: readonly string[];
+      /** Chosen base branch; empty to detect `main`, `master` or `develop`. */
+      readonly branch: string;
+    }
+  /** Answer to a `details` request: signature and documentation of a function. */
+  | {
+      readonly type: 'details';
+      readonly requestId: number;
+      readonly nodeId: string;
+      readonly details: FunctionDetails | null;
+    };
+
+/** Signature and documentation of a function, read from its source. */
+export interface FunctionDetails {
+  /** Declaration line(s), whitespace collapsed (e.g. `save(user: User): void`). */
+  readonly signature: string;
+  /** First paragraph of its doc comment or docstring, if any. */
+  readonly doc: string | null;
+}
+
+/** Largest export accepted from the webview, in characters (about 64 MB). */
+export const MAX_EXPORT_SIZE = 64 * 1024 * 1024;
+
+/** Formats accepted in an `export` message. */
+const EXPORT_FORMATS: readonly string[] = ['png', 'svg', 'mermaid'];
+
+/** Longest signature or doc text accepted in a `details` message. */
+export const MAX_DETAILS_TEXT = 2000;
 
 /**
  * One part of a full graph. A graph is sent as a sequence of these messages
@@ -84,6 +137,25 @@ export type WebviewToHost =
   | { readonly type: 'ready' }
   /** Request to open a file and place the cursor at a 1-based line. */
   | { readonly type: 'navigate'; readonly filePath: RelPath; readonly line: number }
+  /** Asks for the signature and documentation of a function (hover card). */
+  | { readonly type: 'details'; readonly requestId: number; readonly nodeId: string }
+  /**
+   * Saves an export: Mermaid text, or an image as a `data:` URL. The host asks
+   * where to save it.
+   */
+  | {
+      readonly type: 'export';
+      readonly fileName: string;
+      readonly format: 'png' | 'svg' | 'mermaid';
+      readonly data: string;
+    }
+  /** Copies a text to the clipboard (Mermaid export, review summary). */
+  | { readonly type: 'copy'; readonly text: string }
+  /**
+   * Starts (or refreshes) a change review, or stops it with `null`. `branch`
+   * picks the base branch (empty: detect it); omitted, the last one is kept.
+   */
+  | { readonly type: 'review'; readonly mode: ReviewMode | null; readonly branch?: string }
   /** Request a full re-scan of the workspace. */
   | { readonly type: 'refresh' }
   /** Performance samples measured in the webview (milliseconds). */
@@ -99,6 +171,9 @@ export interface MetricSample {
   readonly value: number;
 }
 
+/** Longest branch name accepted in a `review` message. */
+export const MAX_BRANCH_NAME = 255;
+
 /** Maximum number of samples accepted in one `metrics` message. */
 export const MAX_METRIC_SAMPLES = 100;
 
@@ -110,6 +185,26 @@ export const COLLAPSE_MODES: readonly CollapseMode[] = ['always', 'auto', 'never
 
 /** All valid folder view modes, used for runtime validation. */
 export const FOLDER_VIEW_MODES: readonly FolderViewMode[] = ['always', 'auto', 'never'];
+
+/** Most workspace folders accepted in an `options` message. */
+export const MAX_WORKSPACE_ROOTS = 256;
+
+/** Every valid {@link ScrollBehavior}. */
+export const SCROLL_BEHAVIORS: readonly ScrollBehavior[] = ['auto', 'pan', 'zoom'];
+
+/**
+ * Checks a list of workspace folder names (non-empty, without `/`).
+ *
+ * @param value - Value to inspect.
+ * @returns `true` for a valid list.
+ */
+function isWorkspaceRootList(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_WORKSPACE_ROOTS &&
+    value.every((root) => typeof root === 'string' && root !== '' && !root.includes('/'))
+  );
+}
 
 /**
  * Checks whether a value is a non-null, non-array object.
@@ -203,9 +298,53 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHost {
       );
     case 'preferences':
       return isViewPreferences(value.preferences);
+    case 'details':
+      return (
+        isPositiveInteger(value.requestId) &&
+        typeof value.nodeId === 'string' &&
+        value.nodeId.length > 0
+      );
+    case 'export':
+      return (
+        typeof value.fileName === 'string' &&
+        /^[\w.-]{1,100}$/.test(value.fileName) &&
+        EXPORT_FORMATS.includes(value.format as string) &&
+        typeof value.data === 'string' &&
+        value.data.length > 0 &&
+        value.data.length <= MAX_EXPORT_SIZE
+      );
+    case 'review':
+      return (
+        (value.mode === null || REVIEW_MODES.includes(value.mode as ReviewMode)) &&
+        (value.branch === undefined ||
+          (typeof value.branch === 'string' && value.branch.length <= MAX_BRANCH_NAME))
+      );
+    case 'copy':
+      return (
+        typeof value.text === 'string' &&
+        value.text.length > 0 &&
+        value.text.length <= MAX_EXPORT_SIZE
+      );
     default:
       return false;
   }
+}
+
+/**
+ * Checks the details of a function sent by the host.
+ *
+ * @param value - Value to inspect.
+ * @returns `true` for valid details or `null`.
+ */
+function isFunctionDetailsOrNull(value: unknown): value is FunctionDetails | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      typeof value.signature === 'string' &&
+      value.signature.length <= MAX_DETAILS_TEXT &&
+      (value.doc === null ||
+        (typeof value.doc === 'string' && value.doc.length <= MAX_DETAILS_TEXT)))
+  );
 }
 
 /**
@@ -237,13 +376,30 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
       return (
         isRecord(value.options) &&
         COLLAPSE_MODES.includes(value.options.collapseMode as CollapseMode) &&
-        FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode)
+        FOLDER_VIEW_MODES.includes(value.options.folderViewMode as FolderViewMode) &&
+        SCROLL_BEHAVIORS.includes(value.options.scrollBehavior as ScrollBehavior) &&
+        isWorkspaceRootList(value.options.workspaceRoots)
       );
     case 'focus':
     case 'reveal':
       return typeof value.nodeId === 'string' && value.nodeId !== '';
     case 'preferences':
       return isViewPreferences(value.preferences);
+    case 'review':
+      return (
+        (value.state === null || isReviewState(value.state)) &&
+        typeof value.open === 'boolean' &&
+        Array.isArray(value.branches) &&
+        value.branches.every((name) => typeof name === 'string') &&
+        typeof value.branch === 'string'
+      );
+    case 'details':
+      return (
+        isPositiveInteger(value.requestId) &&
+        typeof value.nodeId === 'string' &&
+        value.nodeId.length > 0 &&
+        isFunctionDetailsOrNull(value.details)
+      );
     case 'status':
       return (
         ANALYSIS_STATES.includes(value.state as AnalysisState) &&

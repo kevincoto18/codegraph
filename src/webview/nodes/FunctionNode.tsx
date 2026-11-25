@@ -32,10 +32,7 @@ function FunctionNodeView({ data }: NodeProps<FunctionFlowNode>): JSX.Element {
     );
   }
   return (
-    <div
-      className={`cg-fn cg-fn--${data.functionKind}`}
-      title={`${data.label} — line ${String(data.line)}${data.exported ? ' (exported)' : ''}`}
-    >
+    <div className={`cg-fn cg-fn--${data.functionKind}`}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <span className="cg-fn__badge">{KIND_BADGES[data.functionKind]}</span>
       <span className="cg-fn__name">{data.label}</span>

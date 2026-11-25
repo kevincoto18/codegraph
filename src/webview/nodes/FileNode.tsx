@@ -20,22 +20,43 @@ export function getDirectory(filePath: string): string {
 }
 
 /**
+ * "Open file" icon: an arrow leaving a box.
+ *
+ * @returns The icon element.
+ */
+function OpenFileIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+      <path
+        d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v4H2.5V4h4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
  * Renders a file container: a header with a collapse toggle, the file name,
- * directory and function count. Function nodes are rendered inside by React Flow.
+ * directory, function count and an open button. Clicking the header opens or
+ * closes the function list (see `GraphView`). Function nodes are rendered inside by React Flow.
  * When zoomed out only the file name is drawn (level of detail).
  *
  * @param props - React Flow node props.
  * @returns The file node element.
  */
 function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
-  const { toggle } = useGraphActions();
+  const { toggle, open } = useGraphActions();
   const directory = getDirectory(data.filePath);
   const lowDetail = useLowDetail();
   if (lowDetail) {
     return (
       <div
         className={`cg-file cg-file--lod${data.collapsed ? ' cg-file--collapsed' : ''}`}
-        title={data.filePath}
+        title={data.tooltip}
       >
         <Handle type="target" position={Position.Left} isConnectable={false} />
         <div className="cg-file__header">
@@ -46,7 +67,7 @@ function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
     );
   }
   return (
-    <div className={`cg-file${data.collapsed ? ' cg-file--collapsed' : ''}`} title={data.filePath}>
+    <div className={`cg-file${data.collapsed ? ' cg-file--collapsed' : ''}`} title={data.tooltip}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <div className="cg-file__header">
         <button
@@ -56,7 +77,7 @@ function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
           aria-expanded={!data.collapsed}
           disabled={data.functionCount === 0}
           onClick={(event) => {
-            // Toggling must not also trigger the node's navigate-on-click.
+            // The header click toggles too; avoid toggling twice.
             event.stopPropagation();
             toggle(id);
           }}
@@ -69,6 +90,18 @@ function FileNodeView({ id, data }: NodeProps<FileFlowNode>): JSX.Element {
         <span className="cg-file__count" title="Functions">
           {data.functionCount}
         </span>
+        <button
+          type="button"
+          className="cg-file__open nodrag"
+          aria-label="Open file"
+          title="Open file (Ctrl + click)"
+          onClick={(event) => {
+            event.stopPropagation();
+            open(id, data.filePath, data.line);
+          }}
+        >
+          <OpenFileIcon />
+        </button>
       </div>
       <Handle type="source" position={Position.Right} isConnectable={false} />
     </div>

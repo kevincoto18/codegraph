@@ -11,6 +11,17 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'metrics', samples: [] }],
     [{ type: 'metrics', samples: [{ name: 'layout.full', value: 12.5 }] }],
     [{ type: 'preferences', preferences: DEFAULT_VIEW_PREFERENCES }],
+    [{ type: 'details', requestId: 7, nodeId: 'a.ts#f' }],
+    [
+      {
+        type: 'export',
+        fileName: 'codegraph-graph.png',
+        format: 'png',
+        data: 'data:image/png;base64,AA',
+      },
+    ],
+    [{ type: 'export', fileName: 'codegraph-graph.mmd', format: 'mermaid', data: 'flowchart LR' }],
+    [{ type: 'copy', text: 'flowchart LR' }],
   ])('accepts %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(true);
   });
@@ -30,6 +41,13 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'metrics', samples: Array.from({ length: 101 }, () => ({ name: 'x', value: 1 })) }],
     [{ type: 'preferences' }],
     [{ type: 'preferences', preferences: { editorSync: true } }],
+    [{ type: 'details', requestId: 0, nodeId: 'a.ts#f' }],
+    [{ type: 'export', fileName: '../evil.png', format: 'png', data: 'x' }],
+    [{ type: 'export', fileName: 'a.pdf', format: 'pdf', data: 'x' }],
+    [{ type: 'export', fileName: 'a.png', format: 'png', data: '' }],
+    [{ type: 'copy', text: '' }],
+    [{ type: 'details', requestId: 1, nodeId: '' }],
+    [{ type: 'details', requestId: 1 }],
   ])('rejects %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(false);
   });
@@ -52,9 +70,60 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'preferences', preferences: DEFAULT_VIEW_PREFERENCES }],
     [{ type: 'status', state: 'analyzing' }],
     [{ type: 'status', state: 'error', message: 'boom' }],
-    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
-    [{ type: 'options', options: { collapseMode: 'auto', folderViewMode: 'always' } }],
-    [{ type: 'options', options: { collapseMode: 'never', folderViewMode: 'never' } }],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'auto',
+          folderViewMode: 'always',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'never',
+          folderViewMode: 'never',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'always',
+          scrollBehavior: 'pan',
+          workspaceRoots: ['api', 'web'],
+        },
+      },
+    ],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f', details: null }],
+    [
+      {
+        type: 'details',
+        requestId: 2,
+        nodeId: 'a.ts#f',
+        details: { signature: 'f(): void', doc: 'Runs.' },
+      },
+    ],
+    [{ type: 'details', requestId: 3, nodeId: 'a.ts#f', details: { signature: 'f()', doc: null } }],
   ])('accepts %j', (message) => {
     expect(isHostToWebviewMessage(message)).toBe(true);
   });
@@ -71,11 +140,82 @@ describe('isHostToWebviewMessage', () => {
     [{ type: 'preferences', preferences: null }],
     [{ type: 'status', state: 'done' }],
     [{ type: 'status', state: 'error', message: 42 }],
-    [{ type: 'options', options: { collapseMode: 'sometimes', folderViewMode: 'auto' } }],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'sometimes',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
+      },
+    ],
     [{ type: 'options', options: { collapseMode: 'always' } }],
-    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'maybe' } }],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'maybe',
+          scrollBehavior: 'auto',
+          workspaceRoots: [],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: { collapseMode: 'always', folderViewMode: 'auto', scrollBehavior: 'fly' },
+      },
+    ],
+    [{ type: 'options', options: { collapseMode: 'always', folderViewMode: 'auto' } }],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: ['a/b'],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: [''],
+        },
+      },
+    ],
+    [
+      {
+        type: 'options',
+        options: {
+          collapseMode: 'always',
+          folderViewMode: 'auto',
+          scrollBehavior: 'auto',
+          workspaceRoots: 'api',
+        },
+      },
+    ],
     [{ type: 'options' }],
     [{ type: 'options', options: [] }],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f', details: { signature: 1, doc: null } }],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f', details: { signature: 'f()', doc: 2 } }],
+    [
+      {
+        type: 'details',
+        requestId: 1,
+        nodeId: 'a.ts#f',
+        details: { signature: 'x'.repeat(2001), doc: null },
+      },
+    ],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f' }],
   ])('rejects %j', (message) => {
     expect(isHostToWebviewMessage(message)).toBe(false);
   });

@@ -57,10 +57,19 @@ describe('reduceHostMessage', () => {
       sessionId: 0,
       outOfSync: false,
       lastChange: null,
-      options: { collapseMode: 'always', folderViewMode: 'auto' },
+      options: {
+        collapseMode: 'always',
+        folderViewMode: 'auto',
+        scrollBehavior: 'auto',
+        workspaceRoots: [],
+      },
       focusRequest: null,
       revealRequest: null,
       preferences: null,
+      review: null,
+      reviewOpenRequest: 0,
+      reviewBranches: [],
+      reviewBranch: '',
     });
   });
 
@@ -76,10 +85,19 @@ describe('reduceHostMessage', () => {
       sessionId: 1,
       outOfSync: false,
       lastChange: null,
-      options: { collapseMode: 'always', folderViewMode: 'auto' },
+      options: {
+        collapseMode: 'always',
+        folderViewMode: 'auto',
+        scrollBehavior: 'auto',
+        workspaceRoots: [],
+      },
       focusRequest: null,
       revealRequest: null,
       preferences: null,
+      review: null,
+      reviewOpenRequest: 0,
+      reviewBranches: [],
+      reviewBranch: '',
     });
   });
 
@@ -173,11 +191,26 @@ describe('reduceHostMessage — view options', () => {
   it('stores options and keeps them across new snapshots', () => {
     const withOptions = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
       type: 'options',
-      options: { collapseMode: 'never', folderViewMode: 'always' },
+      options: {
+        collapseMode: 'never',
+        folderViewMode: 'always',
+        scrollBehavior: 'auto',
+        workspaceRoots: [],
+      },
     });
-    expect(withOptions.options).toEqual({ collapseMode: 'never', folderViewMode: 'always' });
+    expect(withOptions.options).toEqual({
+      collapseMode: 'never',
+      folderViewMode: 'always',
+      scrollBehavior: 'auto',
+      workspaceRoots: [],
+    });
     const ready = reduceHostMessage(withOptions, { type: 'graph/loaded', graph: SNAPSHOT });
-    expect(ready.options).toEqual({ collapseMode: 'never', folderViewMode: 'always' });
+    expect(ready.options).toEqual({
+      collapseMode: 'never',
+      folderViewMode: 'always',
+      scrollBehavior: 'auto',
+      workspaceRoots: [],
+    });
   });
 });
 
@@ -207,5 +240,32 @@ describe('editor sync and preferences', () => {
       preferences: DEFAULT_VIEW_PREFERENCES,
     });
     expect(state.preferences).toBe(DEFAULT_VIEW_PREFERENCES);
+  });
+});
+
+describe('reduceHostMessage (review)', () => {
+  it('stores the review and counts requests to open the Changes tab', () => {
+    const loading = { status: 'loading', mode: 'base' } as const;
+    const opened = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'review',
+      state: loading,
+      open: true,
+      branches: ['main', 'release'],
+      branch: 'release',
+    });
+    expect([opened.review, opened.reviewOpenRequest, opened.reviewBranch]).toEqual([
+      loading,
+      1,
+      'release',
+    ]);
+    expect(opened.reviewBranches).toEqual(['main', 'release']);
+    const stopped = reduceHostMessage(opened, {
+      type: 'review',
+      state: null,
+      open: false,
+      branches: [],
+      branch: '',
+    });
+    expect([stopped.review, stopped.reviewOpenRequest]).toEqual([null, 1]);
   });
 });

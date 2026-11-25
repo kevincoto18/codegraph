@@ -22,6 +22,23 @@ export const FOLDER_PALETTE: readonly string[] = [
   '#7c8cf8',
 ];
 
+/**
+ * Colors of the workspace folders in a multi-root workspace, in workspace
+ * order: far apart from each other, so projects are told apart at a glance.
+ */
+export const WORKSPACE_PALETTE: readonly string[] = [
+  '#3794ff',
+  '#4ec9b0',
+  '#e8a33d',
+  '#c586c0',
+  '#f14c4c',
+  '#89d185',
+  '#29b8db',
+  '#ce9178',
+  '#7c8cf8',
+  '#cca700',
+];
+
 /** Name of the CSS custom property carrying a node's folder color. */
 export const FOLDER_COLOR_PROPERTY = '--cg-folder-color';
 
@@ -73,7 +90,45 @@ function withAncestors(folder: RelPath): RelPath[] {
 }
 
 /**
- * Assigns a color to every folder of a set of files. Each folder prefers the
+ * Assigns each workspace folder its color, in workspace order.
+ *
+ * @param workspaceRoots - Workspace folder names.
+ * @returns Color of each workspace folder.
+ */
+export function assignWorkspaceColors(workspaceRoots: readonly string[]): Map<string, string> {
+  return new Map(
+    workspaceRoots.map((root, index) => [
+      root,
+      WORKSPACE_PALETTE[index % WORKSPACE_PALETTE.length] ?? '',
+    ]),
+  );
+}
+
+/**
+ * Lighter shade of a color, for the folders inside a workspace folder.
+ *
+ * @param color - CSS color.
+ * @returns A CSS color.
+ */
+export function lighterShade(color: string): string {
+  return `color-mix(in srgb, ${color} 65%, white)`;
+}
+
+/**
+ * Returns the first segment of a path.
+ *
+ * @param path - Workspace path.
+ * @returns The top-level folder name.
+ */
+function firstSegment(path: RelPath): string {
+  const separator = path.indexOf('/');
+  return separator === -1 ? path : path.slice(0, separator);
+}
+
+/**
+ * Assigns a color to every folder of a set of files. With several workspace
+ * folders, everything inside a workspace folder takes its color (a lighter
+ * shade below the top), so each project is recognizable. Otherwise each folder prefers the
  * palette slot given by a hash of its path (stable across sessions); when two
  * folders want the same slot, the later one takes the next free slot, so the
  * folders of a project stay distinct as long as the palette has room.
@@ -83,9 +138,16 @@ function withAncestors(folder: RelPath): RelPath[] {
  * alphabetical order, so the result only depends on the set of folders.
  *
  * @param filePaths - Workspace-relative file paths.
+ * @param workspaceRoots - Workspace folder names when several are open.
  * @returns Color of each folder (the root has none).
  */
-export function assignFolderColors(filePaths: Iterable<RelPath>): Map<RelPath, string> {
+export function assignFolderColors(
+  filePaths: Iterable<RelPath>,
+  workspaceRoots: readonly string[] = [],
+): Map<RelPath, string> {
+  if (workspaceRoots.length > 1) {
+    return assignColorsByWorkspace(filePaths, workspaceRoots);
+  }
   const direct = new Set<RelPath>();
   for (const filePath of filePaths) {
     const folder = directFolderOf(filePath);
@@ -121,6 +183,81 @@ export function assignFolderColors(filePaths: Iterable<RelPath>): Map<RelPath, s
     colors.set(folder, FOLDER_PALETTE[slot] ?? '');
   }
   return colors;
+}
+
+/**
+ * Colors every folder after the workspace folder that contains it.
+ *
+ * @param filePaths - Workspace-relative file paths.
+ * @param workspaceRoots - Workspace folder names.
+ * @returns Color of each folder.
+ */
+function assignColorsByWorkspace(
+  filePaths: Iterable<RelPath>,
+  workspaceRoots: readonly string[],
+): Map<RelPath, string> {
+  const rootColors = assignWorkspaceColors(workspaceRoots);
+  const colors = new Map<RelPath, string>();
+  for (const filePath of filePaths) {
+    for (const folder of withAncestors(directFolderOf(filePath))) {
+      const rootColor = rootColors.get(firstSegment(folder));
+      if (rootColor !== undefined && !colors.has(folder)) {
+        colors.set(folder, folder.includes('/') ? lighterShade(rootColor) : rootColor);
+      }
+    }
+  }
+  return colors;
+}
+
+/** A workspace folder with its color, for the legend of a multi-root workspace. */
+export interface WorkspaceColorEntry {
+  readonly root: string;
+  readonly color: string;
+  readonly fileCount: number;
+  /** Its largest folders, relative to the workspace folder. */
+  readonly folders: readonly string[];
+}
+
+/** Folders listed under each workspace folder in the legend. */
+const LISTED_WORKSPACE_FOLDERS = 3;
+
+/**
+ * Lists the workspace folders with their colors, file counts and largest
+ * folders, in workspace order.
+ *
+ * @param filePaths - Workspace-relative file paths.
+ * @param workspaceRoots - Workspace folder names.
+ * @returns One entry per workspace folder.
+ */
+export function listWorkspaceColors(
+  filePaths: Iterable<RelPath>,
+  workspaceRoots: readonly string[],
+): WorkspaceColorEntry[] {
+  const rootColors = assignWorkspaceColors(workspaceRoots);
+  const files = new Map<string, number>();
+  const folders = new Map<string, Map<string, number>>();
+  for (const filePath of filePaths) {
+    const root = firstSegment(filePath);
+    if (!rootColors.has(root)) {
+      continue;
+    }
+    files.set(root, (files.get(root) ?? 0) + 1);
+    const folder = directFolderOf(filePath).slice(root.length + 1);
+    if (folder !== '') {
+      const perRoot = folders.get(root) ?? new Map<string, number>();
+      perRoot.set(folder, (perRoot.get(folder) ?? 0) + 1);
+      folders.set(root, perRoot);
+    }
+  }
+  return workspaceRoots.map((root) => ({
+    root,
+    color: rootColors.get(root) ?? '',
+    fileCount: files.get(root) ?? 0,
+    folders: [...(folders.get(root) ?? new Map<string, number>())]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, LISTED_WORKSPACE_FOLDERS)
+      .map(([folder]) => folder),
+  }));
 }
 
 /**
