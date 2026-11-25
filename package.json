@@ -79,8 +79,24 @@
         "title": "Show Connections",
         "category": "CodeGraph",
         "icon": "$(target)"
+      },
+      {
+        "command": "codegraph.reviewChanges",
+        "title": "Review Changes",
+        "category": "CodeGraph",
+        "icon": "$(git-compare)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "codegraph.miniGraph",
+          "name": "CodeGraph",
+          "contextualTitle": "CodeGraph Map"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "codegraph.openGraph",
@@ -135,6 +151,11 @@
             "The mouse wheel and two-finger scrolling always zoom (Shift + wheel pans)."
           ],
           "description": "What the mouse wheel and two-finger touchpad scrolling do in the graph."
+        },
+        "codegraph.review.baseBranch": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Branch that **Review Changes** compares the working tree with (from where the current branch started). Empty: the first of `main`, `master`, `origin/main`, `origin/master` or `develop` that exists."
         }
       }
     },
@@ -152,13 +173,20 @@
           "when": "resourceExtname =~ /^\\.(ts|tsx|js|jsx|py|java|cs|go)$/",
           "group": "navigation@90"
         }
+      ],
+      "scm/title": [
+        {
+          "command": "codegraph.reviewChanges",
+          "when": "scmProvider == git",
+          "group": "navigation@100"
+        }
       ]
     }
   },
   "scripts": {
     "build": "npm run build:extension && npm run build:webview",
     "build:extension": "node esbuild.mjs",
-    "build:webview": "vite build",
+    "build:webview": "vite build && vite build -c vite.mini.config.mts",
     "watch:extension": "node esbuild.mjs --watch",
     "watch:webview": "vite build --watch",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/webview/tsconfig.json && tsc -p src/test/integration/tsconfig.json",
@@ -177,7 +205,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
-    "vscode:prepublish": "npm run typecheck && npm test && node esbuild.mjs --production && vite build"
+    "vscode:prepublish": "npm run typecheck && npm test && node esbuild.mjs --production && npm run build:webview"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -15,11 +15,14 @@ import type { IconName } from './icons';
 import { Icon } from './icons';
 import type { FolderEntry } from './nodeFilters';
 import { countActiveNodeFilters } from './nodeFilters';
+import type { ReviewTabProps } from './ReviewTab';
+import { ReviewTab } from './ReviewTab';
 import type { SearchTabProps } from './SearchTab';
 import { SearchTab } from './SearchTab';
 
 /** Tabs of the sidebar. */
-export type SidebarTab = 'search' | 'connections' | 'filters' | 'focus' | 'view' | 'export';
+export type SidebarTab =
+  'search' | 'connections' | 'filters' | 'focus' | 'view' | 'review' | 'export';
 
 /** Most folders listed in the color legend. */
 const MAX_LISTED_FOLDER_COLORS = 12;
@@ -85,6 +88,11 @@ interface SidebarProps {
   readonly focus: SidebarFocus;
   readonly view: SidebarView;
   readonly exportTab: ExportTabProps;
+  readonly reviewTab: ReviewTabProps;
+  /** Pending request to show the Changes tab ("Review Changes" command), by sequence. */
+  readonly reviewOpenRequest: number | null;
+  /** Called once the Changes tab was shown for a request. */
+  readonly onReviewOpenHandled: (sequence: number) => void;
 }
 
 /** Rail entries, in display order. */
@@ -98,6 +106,7 @@ const TABS: readonly {
   { id: 'filters', icon: 'filter', title: 'Filters' },
   { id: 'focus', icon: 'focus', title: 'Focus' },
   { id: 'view', icon: 'view', title: 'View' },
+  { id: 'review', icon: 'gitCompare', title: 'Changes' },
   { id: 'export', icon: 'download', title: 'Export' },
 ];
 
@@ -168,6 +177,24 @@ function RailButton({ icon, title, active, onClick, badge }: RailButtonProps): J
 }
 
 /**
+ * Badge of the Changes tab: the number of changed functions and files while
+ * a review runs.
+ *
+ * @param review - Changes tab state.
+ * @returns The badge, or `null` without review.
+ */
+function reviewBadge(review: ReviewTabProps): ReactNode {
+  if (review.state === null) {
+    return null;
+  }
+  return review.impact === null || review.impact.changed === 0 ? (
+    <span className="cg-rail__dot" />
+  ) : (
+    Math.min(review.impact.changed, 99)
+  );
+}
+
+/**
  * Settings and filters sidebar: a vertical rail of icons (Search,
  * Connections, Filters, Focus, View) that opens a panel next to it. Clicking
  * the active icon, the close button or pressing Escape inside closes the
@@ -178,7 +205,19 @@ function RailButton({ icon, title, active, onClick, badge }: RailButtonProps): J
  */
 export function Sidebar(props: SidebarProps): JSX.Element {
   const [tab, setTab] = useState<SidebarTab | null>(null);
-  const { search, connections, onConnectionsChange, filters, focus, view, exportTab } = props;
+  const { search, connections, onConnectionsChange, filters, focus, view, exportTab, reviewTab } =
+    props;
+  const { reviewOpenRequest, onReviewOpenHandled } = props;
+
+  // The "Review Changes" command opens the Changes tab.
+  useEffect(() => {
+    if (reviewOpenRequest === null) {
+      return;
+    }
+    onReviewOpenHandled(reviewOpenRequest);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTab('review');
+  }, [reviewOpenRequest, onReviewOpenHandled]);
 
   // Ctrl/Cmd+F opens the search tab from anywhere in the webview.
   useEffect(() => {
@@ -215,6 +254,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     filters: activeFilters === 0 ? null : activeFilters,
     focus: focus.label === null ? null : <span className="cg-rail__dot" />,
     view: view.editorSync ? <span className="cg-rail__dot" /> : null,
+    review: reviewBadge(reviewTab),
     export: null,
   };
   const current = TABS.find((entry) => entry.id === tab);
@@ -371,6 +411,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
               </>
             )}
 
+            {current.id === 'review' && <ReviewTab {...reviewTab} />}
             {current.id === 'export' && <ExportTab {...exportTab} />}
 
             {current.id === 'view' && (

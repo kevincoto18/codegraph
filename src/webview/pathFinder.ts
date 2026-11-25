@@ -27,7 +27,7 @@ interface Step {
 
 /**
  * Builds the adjacency of the search graph: calls between functions, or
- * imports and calls lifted to their files.
+ * imports and calls lifted to their files.f
  *
  * @param snapshot - Graph.
  * @param level - Level of the search.

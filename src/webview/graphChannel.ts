@@ -5,6 +5,7 @@ import type {
   AnalysisState,
   GraphSnapshot,
   HostToWebview,
+  ReviewState,
   ViewOptions,
   ViewPreferences,
 } from '../shared';
@@ -49,6 +50,14 @@ export interface GraphChannelState {
   readonly revealRequest: RevealRequest | null;
   /** Stored view preferences, or `null` until the host sends them. */
   readonly preferences: ViewPreferences | null;
+  /** Change review running, or `null` when none is. */
+  readonly review: ReviewState | null;
+  /** Increases every time the host asks to show the Changes tab. */
+  readonly reviewOpenRequest: number;
+  /** Branches a review can compare with. */
+  readonly reviewBranches: readonly string[];
+  /** Picked base branch; empty to detect it. */
+  readonly reviewBranch: string;
 }
 
 /** A focus asked by the host. */
@@ -86,6 +95,10 @@ export const INITIAL_GRAPH_CHANNEL_STATE: GraphChannelState = {
   focusRequest: null,
   revealRequest: null,
   preferences: null,
+  review: null,
+  reviewOpenRequest: 0,
+  reviewBranches: [],
+  reviewBranch: '',
 };
 
 /** Fallback text when the host reports an error without a message. */
@@ -133,6 +146,14 @@ export function reduceHostMessage(
       };
     case 'preferences':
       return { ...state, preferences: message.preferences };
+    case 'review':
+      return {
+        ...state,
+        review: message.state,
+        reviewOpenRequest: state.reviewOpenRequest + (message.open ? 1 : 0),
+        reviewBranches: message.branches,
+        reviewBranch: message.branch,
+      };
     case 'details':
       // Hover details are handled by `useFunctionDetails`, not by the graph channel.
       return state;

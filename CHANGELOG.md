@@ -8,6 +8,21 @@ All notable changes to CodeGraph Map are documented here. The format follows
 
 ### Added
 
+- **Review changes (PR review mode)**: command **CodeGraph: Review Changes**
+  (also in the Source Control title bar) and a new **Changes** panel. Compares
+  the working tree with a base branch picked from the list of branches (or
+  detected: `main`, `master`, `develop` or `codegraph.review.baseBranch`), the
+  last commit or the commit before it,
+  through VS Code's Git extension. Changed functions and files are red, what
+  calls or imports them orange (1–3 levels), the rest is dimmed; the list puts
+  the riskiest changes first and **Copy summary** copies a Markdown table for
+  the pull request. Refreshes as files change.
+- **CodeGraph side view** in the Explorer: a small graph that follows the
+  active editor. **Files** shows which files use the current one and which it
+  uses (with its functions, the one under the cursor highlighted);
+  **Functions** shows the callers and callees of the function under the
+  cursor, with its signature and doc. Click a node to open it; ⤢ opens the full
+  graph focused there. The analysis is shared with the graph panel.
 - **Touchpad navigation**: two fingers pan the graph and pinching zooms; a mouse
   wheel still zooms. New setting `codegraph.scrollBehavior` (`auto`, `pan`,
   `zoom`).

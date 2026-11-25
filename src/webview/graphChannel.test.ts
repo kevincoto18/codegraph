@@ -66,6 +66,10 @@ describe('reduceHostMessage', () => {
       focusRequest: null,
       revealRequest: null,
       preferences: null,
+      review: null,
+      reviewOpenRequest: 0,
+      reviewBranches: [],
+      reviewBranch: '',
     });
   });
 
@@ -90,6 +94,10 @@ describe('reduceHostMessage', () => {
       focusRequest: null,
       revealRequest: null,
       preferences: null,
+      review: null,
+      reviewOpenRequest: 0,
+      reviewBranches: [],
+      reviewBranch: '',
     });
   });
 
@@ -232,5 +240,32 @@ describe('editor sync and preferences', () => {
       preferences: DEFAULT_VIEW_PREFERENCES,
     });
     expect(state.preferences).toBe(DEFAULT_VIEW_PREFERENCES);
+  });
+});
+
+describe('reduceHostMessage (review)', () => {
+  it('stores the review and counts requests to open the Changes tab', () => {
+    const loading = { status: 'loading', mode: 'base' } as const;
+    const opened = reduceHostMessage(INITIAL_GRAPH_CHANNEL_STATE, {
+      type: 'review',
+      state: loading,
+      open: true,
+      branches: ['main', 'release'],
+      branch: 'release',
+    });
+    expect([opened.review, opened.reviewOpenRequest, opened.reviewBranch]).toEqual([
+      loading,
+      1,
+      'release',
+    ]);
+    expect(opened.reviewBranches).toEqual(['main', 'release']);
+    const stopped = reduceHostMessage(opened, {
+      type: 'review',
+      state: null,
+      open: false,
+      branches: [],
+      branch: '',
+    });
+    expect([stopped.review, stopped.reviewOpenRequest]).toEqual([null, 1]);
   });
 });

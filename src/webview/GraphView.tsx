@@ -11,7 +11,10 @@ import type {
   ConnectionFilters,
   GraphSnapshot,
   NodeFilters,
+  GraphNode,
   RelPath,
+  ReviewMode,
+  ReviewState,
   ViewPreferences,
 } from '../shared';
 import {
@@ -74,6 +77,16 @@ import { postToHost } from './vscodeApi';
 import { useFunctionDetails } from './useFunctionDetails';
 import type { GraphPath } from './pathFinder';
 import { findShortestPath, getPathDisplay, pathClassOfNode, pathStepKey } from './pathFinder';
+import {
+  computeImpact,
+  formatReviewSummary,
+  getReviewDisplay,
+  indexUsers,
+  listReviewEntries,
+  reviewChangedIds,
+  reviewClassOfEdge,
+  reviewClassOfNode,
+} from './review';
 import type { Box } from './viewportMath';
 import {
   CONTAINER_ZOOM,
@@ -119,6 +132,22 @@ interface GraphViewProps {
   readonly onRefresh: () => void;
   /** Opens a file at a 1-based line. */
   readonly onNavigate: (filePath: RelPath, line: number) => void;
+  /** Change review running, or `null`. */
+  readonly review: ReviewState | null;
+  /** Branches a review can compare with. */
+  readonly reviewBranches: readonly string[];
+  /** Picked base branch; empty to detect it. */
+  readonly reviewBranch: string;
+  /** Levels of callers and importers shown as affected by the review. */
+  readonly reviewDepth: number;
+  readonly onReviewDepthChange: (depth: number) => void;
+  /** Starts or refreshes a review, or stops it with `null`; `branch` picks the base. */
+  readonly onReviewRequest: (mode: ReviewMode | null, branch?: string) => void;
+  /** Pending request to show the Changes tab, by sequence. */
+  readonly reviewOpenRequest: number | null;
+  readonly onReviewOpenHandled: (sequence: number) => void;
+  /** Copies a text to the clipboard. */
+  readonly onCopyText: (text: string) => void;
 }
 
 /** Duration of viewport animations, in milliseconds. */
@@ -267,6 +296,15 @@ function GraphViewContent({
   errorMessage,
   onRefresh,
   onNavigate,
+  review,
+  reviewBranches,
+  reviewBranch,
+  reviewDepth,
+  onReviewDepthChange,
+  onReviewRequest,
+  reviewOpenRequest,
+  onReviewOpenHandled,
+  onCopyText,
 }: GraphViewProps): JSX.Element {
   const { fitView, getZoom, getInternalNode, getViewport, setViewport, getNodes, getNodesBounds } =
     useReactFlow<CodeGraphFlowNode, CodeGraphFlowEdge>();
@@ -486,10 +524,29 @@ function GraphViewContent({
     () => (markUnused ? findUnusedCode(snapshot) : null),
     [markUnused, snapshot],
   );
+  // Change review: what changed, what uses it, and how the canvas shows it.
+  const reviewResult = review?.status === 'ready' ? review.result : null;
+  const reviewing = reviewResult !== null;
+  const reviewUsers = useMemo(
+    () => (reviewing ? indexUsers(fullSnapshot) : null),
+    [reviewing, fullSnapshot],
+  );
+  const reviewImpact = useMemo(
+    () =>
+      reviewResult === null || reviewUsers === null
+        ? null
+        : computeImpact(reviewUsers, reviewChangedIds(reviewResult), reviewDepth),
+    [reviewResult, reviewUsers, reviewDepth],
+  );
+  const reviewDisplay = useMemo(
+    () => (reviewImpact === null ? null : getReviewDisplay(fullSnapshot, reviewImpact, folderTree)),
+    [reviewImpact, fullSnapshot, folderTree],
+  );
   const displayedNodes = useMemo(
     () =>
       nodeDecorator.apply(mountedNodes, (node) =>
         joinClassNames(
+          reviewClassOfNode(node.id, node.type, reviewDisplay),
           unused?.ids.has(node.id) === true ? 'cg-unused' : undefined,
           pathClassOfNode(node.id, pathDisplay),
           searchClassOfNode(node.id, search),
@@ -511,6 +568,7 @@ function GraphViewContent({
       currentMatchId,
       pathDisplay,
       unused,
+      reviewDisplay,
     ],
   );
   const visibleEdges = useMemo(() => {
@@ -538,9 +596,10 @@ function GraphViewContent({
             : pathDisplay.steps.has(pathStepKey(edge.source, edge.target))
               ? 'cg-path-edge'
               : 'cg-focus-dimmed',
+          reviewClassOfEdge(edge.source, edge.target, reviewDisplay),
         ),
       ),
-    [edgeDecorator, visibleEdges, search, focusedIds, pathDisplay],
+    [edgeDecorator, visibleEdges, search, focusedIds, pathDisplay, reviewDisplay],
   );
   const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
   const summary = useMemo(() => summarizeGraph(fullSnapshot), [fullSnapshot]);
@@ -1472,6 +1531,51 @@ function GraphViewContent({
     );
   }, [hovered, contextMenu, fullSnapshot, functionDetails.details]);
 
+  const reviewTab = useMemo(() => {
+    const nodesById = new Map<string, GraphNode>(fullSnapshot.nodes.map((node) => [node.id, node]));
+    const entries =
+      reviewResult === null || reviewUsers === null
+        ? []
+        : listReviewEntries(reviewResult, nodesById, reviewUsers, reviewDepth);
+    return {
+      state: review,
+      branches: reviewBranches,
+      branch: reviewBranch,
+      depth: reviewDepth,
+      onDepthChange: onReviewDepthChange,
+      onRequest: onReviewRequest,
+      entries,
+      impact: reviewImpact,
+      outside: reviewResult === null ? [] : reviewResult.files.filter((file) => !file.inGraph),
+      onGoTo: bringIntoView,
+      onOpen: (nodeId: string) => {
+        const node = nodesById.get(nodeId);
+        if (node !== undefined) {
+          onNavigate(node.filePath, node.line);
+        }
+      },
+      onCopySummary: () => {
+        if (reviewResult !== null && reviewImpact !== null) {
+          onCopyText(formatReviewSummary(reviewResult, entries, reviewImpact, reviewDepth));
+        }
+      },
+    };
+  }, [
+    fullSnapshot,
+    review,
+    reviewBranches,
+    reviewBranch,
+    reviewResult,
+    reviewUsers,
+    reviewImpact,
+    reviewDepth,
+    onReviewDepthChange,
+    onReviewRequest,
+    bringIntoView,
+    onNavigate,
+    onCopyText,
+  ]);
+
   const unusedPanel = useMemo(() => {
     const items =
       unused === null
@@ -1718,6 +1822,9 @@ function GraphViewContent({
         onDepthChange: setFocusDepth,
         onDirectionChange: setFocusDirection,
       }}
+      reviewTab={reviewTab}
+      reviewOpenRequest={reviewOpenRequest}
+      onReviewOpenHandled={onReviewOpenHandled}
       exportTab={{
         items: exportItems,
         estimate: estimateExport,

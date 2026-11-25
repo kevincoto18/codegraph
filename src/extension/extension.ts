@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { GraphSnapshot } from '../shared';
 
 import { CodeGraphController } from './controller';
+import { MINI_VIEW_ID, MiniGraphViewProvider } from './miniGraphView';
 import { VIEW_TYPE } from './panel';
 import { createOpenGraphStatusBarItem } from './statusBar';
 
@@ -11,6 +12,9 @@ const OPEN_GRAPH_COMMAND = 'codegraph.openGraph';
 
 /** Command that opens the graph focused on a file or function. */
 const SHOW_CONNECTIONS_COMMAND = 'codegraph.showConnections';
+
+/** Command that reviews the git changes in the graph. */
+const REVIEW_CHANGES_COMMAND = 'codegraph.reviewChanges';
 
 /** Command that opens the performance report. */
 const PERFORMANCE_REPORT_COMMAND = 'codegraph.showPerformanceReport';
@@ -52,6 +56,11 @@ export function activate(context: vscode.ExtensionContext): CodeGraphApi {
     context.workspaceState,
   );
   activeController = controller;
+  const miniView = new MiniGraphViewProvider(
+    context.extensionUri,
+    controller,
+    context.workspaceState,
+  );
 
   context.subscriptions.push(
     logger,
@@ -62,10 +71,14 @@ export function activate(context: vscode.ExtensionContext): CodeGraphApi {
     vscode.commands.registerCommand(SHOW_CONNECTIONS_COMMAND, (uri?: vscode.Uri) =>
       controller.showConnections(uri),
     ),
+    vscode.commands.registerCommand(REVIEW_CHANGES_COMMAND, () => controller.reviewChanges()),
     vscode.commands.registerCommand(PERFORMANCE_REPORT_COMMAND, () =>
       controller.showPerformanceReport(),
     ),
     createOpenGraphStatusBarItem(OPEN_GRAPH_COMMAND),
+    // Side view in the Explorer, created lazily by VS Code when first shown.
+    miniView,
+    vscode.window.registerWebviewViewProvider(MINI_VIEW_ID, miniView),
     // Reopens the graph panel after a window reload, with the view it had.
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
       deserializeWebviewPanel: (panel) => {

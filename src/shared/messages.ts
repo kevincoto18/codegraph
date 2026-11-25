@@ -7,6 +7,8 @@
  */
 import type { ViewPreferences } from './preferences';
 import { isViewPreferences } from './preferences';
+import type { ReviewMode, ReviewState } from './review';
+import { REVIEW_MODES, isReviewState } from './review';
 import type { GraphPatch, GraphSnapshot, RelPath } from './types';
 import type { ChunkLimits, WireGraphChunk } from './wire';
 import { DEFAULT_CHUNK_LIMITS, encodeSnapshot } from './wire';
@@ -54,6 +56,19 @@ export type HostToWebview =
   | { readonly type: 'reveal'; readonly nodeId: string }
   /** Stored view preferences of the workspace. */
   | { readonly type: 'preferences'; readonly preferences: ViewPreferences }
+  /**
+   * Changes under review and their state; `null` when the review was stopped.
+   * `open` asks the webview to show the Changes tab ("Review Changes" command).
+   */
+  | {
+      readonly type: 'review';
+      readonly state: ReviewState | null;
+      readonly open: boolean;
+      /** Branches the base can be picked from (local first, then remote). */
+      readonly branches: readonly string[];
+      /** Chosen base branch; empty to detect `main`, `master` or `develop`. */
+      readonly branch: string;
+    }
   /** Answer to a `details` request: signature and documentation of a function. */
   | {
       readonly type: 'details';
@@ -134,8 +149,13 @@ export type WebviewToHost =
       readonly format: 'png' | 'svg' | 'mermaid';
       readonly data: string;
     }
-  /** Copies a text to the clipboard (Mermaid export). */
+  /** Copies a text to the clipboard (Mermaid export, review summary). */
   | { readonly type: 'copy'; readonly text: string }
+  /**
+   * Starts (or refreshes) a change review, or stops it with `null`. `branch`
+   * picks the base branch (empty: detect it); omitted, the last one is kept.
+   */
+  | { readonly type: 'review'; readonly mode: ReviewMode | null; readonly branch?: string }
   /** Request a full re-scan of the workspace. */
   | { readonly type: 'refresh' }
   /** Performance samples measured in the webview (milliseconds). */
@@ -150,6 +170,9 @@ export interface MetricSample {
   /** Duration in milliseconds. */
   readonly value: number;
 }
+
+/** Longest branch name accepted in a `review` message. */
+export const MAX_BRANCH_NAME = 255;
 
 /** Maximum number of samples accepted in one `metrics` message. */
 export const MAX_METRIC_SAMPLES = 100;
@@ -290,6 +313,12 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHost {
         value.data.length > 0 &&
         value.data.length <= MAX_EXPORT_SIZE
       );
+    case 'review':
+      return (
+        (value.mode === null || REVIEW_MODES.includes(value.mode as ReviewMode)) &&
+        (value.branch === undefined ||
+          (typeof value.branch === 'string' && value.branch.length <= MAX_BRANCH_NAME))
+      );
     case 'copy':
       return (
         typeof value.text === 'string' &&
@@ -356,6 +385,14 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
       return typeof value.nodeId === 'string' && value.nodeId !== '';
     case 'preferences':
       return isViewPreferences(value.preferences);
+    case 'review':
+      return (
+        (value.state === null || isReviewState(value.state)) &&
+        typeof value.open === 'boolean' &&
+        Array.isArray(value.branches) &&
+        value.branches.every((name) => typeof name === 'string') &&
+        typeof value.branch === 'string'
+      );
     case 'details':
       return (
         isPositiveInteger(value.requestId) &&
