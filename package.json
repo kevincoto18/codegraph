@@ -161,6 +161,7 @@
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "prepare": "husky",
     "vscode:prepublish": "npm run typecheck && npm test && node esbuild.mjs --production && vite build"
   },
   "devDependencies": {
@@ -182,7 +183,9 @@
     "eslint-plugin-jsdoc": "^65.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
+    "husky": "^9.1.7",
     "ignore": "^7.0.16",
+    "lint-staged": "^17.6.2",
     "mocha": "^12.0.3",
     "playwright-core": "^1.65.1",
     "prettier": "^3.10.1",
@@ -192,5 +195,12 @@
     "typescript-eslint": "^8.73.0",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,mts,mjs}": [
+      "eslint --max-warnings 0 --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,html}": "prettier --write"
   }
 }

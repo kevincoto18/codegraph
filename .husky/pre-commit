@@ -1,0 +1,5 @@
+# Runs before every commit (see CONTRIBUTING.md > Quality bar).
+# Lint and format the staged files, then type-check and run the unit tests.
+npx lint-staged
+npm run typecheck
+npm test
