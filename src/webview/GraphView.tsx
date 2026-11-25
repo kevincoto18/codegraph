@@ -41,7 +41,7 @@ import { filterEdges } from './edgeFilters';
 import type { FocusDirection, FocusResult } from './focus';
 import { computeFocus, getFocusFitIds, getFocusIdsToReveal, getFocusedDisplayIds } from './focus';
 import type { FolderTree } from './folders';
-import { buildFolderTree, isFolderViewEnabled } from './folders';
+import { FOLDER_ID_PREFIX, buildFolderTree, isFolderId, isFolderViewEnabled } from './folders';
 import { searchClassOfEdge, searchClassOfNode, toSearchResult, withFolderContext } from './search';
 import type { SearchHit } from './searchIndex';
 import { buildSearchIndex, searchIndex } from './searchIndex';
@@ -66,6 +66,11 @@ import { describeCollapseChanges, restoreCollapsed } from './viewState';
 import type { PathBarState } from './PathBar';
 import { PathBar } from './PathBar';
 import { HoverCard } from './HoverCard';
+import { captureBox, captureVisibleArea } from './captureImage';
+import { findUnusedCode } from './deadCode';
+import type { ExportItem, ExportRequest } from './ExportTab';
+import { selectFiles, subgraphOfFiles, toMermaid, exportFileName } from './exportGraph';
+import { postToHost } from './vscodeApi';
 import { useFunctionDetails } from './useFunctionDetails';
 import type { GraphPath } from './pathFinder';
 import { findShortestPath, getPathDisplay, pathClassOfNode, pathStepKey } from './pathFinder';
@@ -134,6 +139,9 @@ const NOTICE_MS = 6000;
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
 
+/** Time given to the canvas to render every node before an image is captured, in milliseconds. */
+const EXPORT_SETTLE_MS = 300;
+
 /** Time the pointer rests on a function before its hover card shows, in milliseconds. */
 const HOVER_CARD_DELAY_MS = 400;
 
@@ -198,6 +206,27 @@ function folderTreeOf(
 }
 
 /**
+ * Tells whether every file of a folder is part of an export, so the folder
+ * itself is drawn around them.
+ *
+ * @param path - Folder path.
+ * @param fileIds - Files of the export.
+ * @param snapshot - Graph.
+ * @returns `true` when the folder has files and all of them are exported.
+ */
+function isFolderFullySelected(
+  path: string,
+  fileIds: ReadonlySet<string>,
+  snapshot: GraphSnapshot,
+): boolean {
+  const prefix = `${path}/`;
+  const files = snapshot.nodes.filter(
+    (node) => node.kind === 'file' && node.filePath.startsWith(prefix),
+  );
+  return files.length > 0 && files.every((file) => fileIds.has(file.id));
+}
+
+/**
  * Graph screen: toolbar (status, search, expand/collapse all, re-layout,
  * refresh) and the interactive canvas.
  *
@@ -239,10 +268,8 @@ function GraphViewContent({
   onRefresh,
   onNavigate,
 }: GraphViewProps): JSX.Element {
-  const { fitView, getZoom, getInternalNode, getViewport, setViewport } = useReactFlow<
-    CodeGraphFlowNode,
-    CodeGraphFlowEdge
-  >();
+  const { fitView, getZoom, getInternalNode, getViewport, setViewport, getNodes, getNodesBounds } =
+    useReactFlow<CodeGraphFlowNode, CodeGraphFlowEdge>();
   /** Canvas container, to know the size of the visible area. */
   const canvasRef = useRef<HTMLElement>(null);
   // Hidden files and functions never reach the layout.
@@ -330,6 +357,11 @@ function GraphViewContent({
     readonly to: string;
     readonly path: GraphPath | null;
   } | null>(null);
+  /** Whether unused functions and files are marked (Filters → Unused code). */
+  const [markUnused, setMarkUnused] = useState(false);
+  /** Whether every node is rendered, not only the visible ones (image export). */
+  const [renderAll, setRenderAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
   /** Function under the pointer whose hover card is shown, with its screen box. */
   const [hovered, setHovered] = useState<{
     readonly nodeId: string;
@@ -450,10 +482,15 @@ function GraphViewContent({
         : getPathDisplay(current.nodes, shownPath.path),
     [shownPath, current.nodes],
   );
+  const unused = useMemo(
+    () => (markUnused ? findUnusedCode(snapshot) : null),
+    [markUnused, snapshot],
+  );
   const displayedNodes = useMemo(
     () =>
       nodeDecorator.apply(mountedNodes, (node) =>
         joinClassNames(
+          unused?.ids.has(node.id) === true ? 'cg-unused' : undefined,
           pathClassOfNode(node.id, pathDisplay),
           searchClassOfNode(node.id, search),
           highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
@@ -473,6 +510,7 @@ function GraphViewContent({
       syncedId,
       currentMatchId,
       pathDisplay,
+      unused,
     ],
   );
   const visibleEdges = useMemo(() => {
@@ -1434,6 +1472,207 @@ function GraphViewContent({
     );
   }, [hovered, contextMenu, fullSnapshot, functionDetails.details]);
 
+  const unusedPanel = useMemo(() => {
+    const items =
+      unused === null
+        ? []
+        : [
+            ...unused.functions.map((fn) => ({
+              id: fn.id,
+              label: fn.qualifiedName,
+              detail: `${fn.filePath} · line ${String(fn.line)}${fn.exported ? ' · exported' : ''}`,
+            })),
+            ...unused.files.map((file) => ({
+              id: file.id,
+              label: file.label,
+              detail: `${file.filePath} · file nothing uses`,
+            })),
+          ];
+    return {
+      enabled: markUnused,
+      onToggle: setMarkUnused,
+      functionCount: unused?.functions.length ?? 0,
+      fileCount: unused?.files.length ?? 0,
+      items,
+      onGoTo: bringIntoView,
+    };
+  }, [unused, markUnused, bringIntoView]);
+
+  const exportItems = useMemo((): ExportItem[] => {
+    const files = snapshot.nodes
+      .filter((node) => node.kind === 'file')
+      .map((node) => ({ path: node.filePath, kind: 'file' as const, fileCount: 1 }));
+    const folderItems = folders.map((folder) => ({
+      path: folder.path,
+      kind: 'folder' as const,
+      fileCount: folder.fileCount,
+    }));
+    return [...folderItems, ...files.sort((a, b) => a.path.localeCompare(b.path))];
+  }, [snapshot, folders]);
+
+  /**
+   * Files covered by an export: all, the ones on screen or the chosen ones.
+   *
+   * @param request - Export asked by the user.
+   * @returns File ids.
+   */
+  const exportFileIds = useCallback(
+    (request: ExportRequest): Set<string> => {
+      if (request.scope === 'selected') {
+        return selectFiles(snapshot, request.selection);
+      }
+      const all = snapshot.nodes.filter((node) => node.kind === 'file').map((node) => node.id);
+      if (request.scope === 'all') {
+        return new Set(all);
+      }
+      // Only visible nodes are rendered, so the DOM tells what is on screen.
+      const onScreen = new Set<string>();
+      const rendered = canvasRef.current?.querySelectorAll('.react-flow__node') ?? [];
+      const fileOf = new Map(
+        snapshot.nodes.map((node) => [node.id, node.kind === 'function' ? node.fileId : node.id]),
+      );
+      for (const element of rendered) {
+        const id = element.getAttribute('data-id') ?? '';
+        const file = fileOf.get(id);
+        if (file !== undefined) {
+          onScreen.add(file);
+        } else if (isFolderId(id)) {
+          const prefix = `${id.slice(FOLDER_ID_PREFIX.length)}/`;
+          all
+            .filter((fileId) => fileId.startsWith(prefix))
+            .forEach((fileId) => onScreen.add(fileId));
+        }
+      }
+      return onScreen;
+    },
+    [snapshot],
+  );
+
+  const estimateExport = useCallback(
+    (request: ExportRequest) => {
+      const files = exportFileIds(request);
+      const functions = snapshot.nodes.filter(
+        (node) => node.kind === 'function' && files.has(node.fileId),
+      ).length;
+      return { files: files.size, functions };
+    },
+    [exportFileIds, snapshot],
+  );
+
+  /**
+   * Captures an image of the whole canvas or of chosen files and folders:
+   * renders every node at zoom 1, captures the box around the kept nodes and
+   * puts the view back.
+   *
+   * @param format - Image format.
+   * @param fileIds - Files to keep, or `null` for everything.
+   * @returns The image as a `data:` URL, or `null` when nothing is shown.
+   */
+  const captureNodes = useCallback(
+    async (format: 'png' | 'svg', fileIds: ReadonlySet<string> | null): Promise<string | null> => {
+      const viewportElement =
+        canvasRef.current?.querySelector<HTMLElement>('.react-flow__viewport') ?? null;
+      if (viewportElement === null) {
+        return null;
+      }
+      const saved = getViewport();
+      setRenderAll(true);
+      try {
+        await setViewport({ x: 0, y: 0, zoom: 1 });
+        await new Promise((resolve) => setTimeout(resolve, EXPORT_SETTLE_MS));
+        const nodes = getNodes().filter((node) => {
+          if (fileIds === null) {
+            return true;
+          }
+          if (node.type === 'folder') {
+            return isFolderFullySelected(node.data.path, fileIds, snapshot);
+          }
+          return fileIds.has(node.type === 'function' ? (node.parentId ?? '') : node.id);
+        });
+        if (nodes.length === 0) {
+          return null;
+        }
+        const keepNodes = fileIds === null ? null : new Set(nodes.map((node) => node.id));
+        const keepEdges =
+          keepNodes === null
+            ? null
+            : new Set(
+                displayedEdges
+                  .filter((edge) => keepNodes.has(edge.source) && keepNodes.has(edge.target))
+                  .map((edge) => edge.id),
+              );
+        return await captureBox(
+          viewportElement,
+          getNodesBounds(nodes),
+          format,
+          keepNodes,
+          keepEdges,
+        );
+      } finally {
+        setRenderAll(false);
+        void setViewport(saved);
+      }
+    },
+    [getViewport, setViewport, getNodes, getNodesBounds, displayedEdges, snapshot],
+  );
+
+  const runExport = useCallback(
+    (request: ExportRequest) => {
+      const fileIds = exportFileIds(request);
+      const fileName = exportFileName(request.format, request.scope);
+      if (request.format === 'mermaid') {
+        const text = toMermaid(subgraphOfFiles(snapshot, fileIds), {
+          level: request.level,
+          imports: edgeFilters.imports,
+          calls: edgeFilters.calls,
+        });
+        postToHost(
+          request.copy
+            ? { type: 'copy', text }
+            : { type: 'export', fileName, format: 'mermaid', data: text },
+        );
+        return;
+      }
+      const format = request.format;
+      if (request.scope === 'selected') {
+        // Open the folders that hide the chosen files before capturing them.
+        const toExpand = [...getIdsToReveal(snapshot, folderTree, fileIds)].filter((id) =>
+          collapsedIds.has(id),
+        );
+        if (toExpand.length > 0) {
+          setCollapsedIds((collapsed) => {
+            const next = new Set(collapsed);
+            toExpand.forEach((id) => next.delete(id));
+            return next;
+          });
+        }
+      }
+      setExporting(true);
+      const flow = canvasRef.current?.querySelector<HTMLElement>('.react-flow') ?? null;
+      const capture =
+        request.scope === 'view'
+          ? flow === null
+            ? Promise.resolve(null)
+            : captureVisibleArea(flow, format)
+          : captureNodes(format, request.scope === 'all' ? null : fileIds);
+      capture
+        .then((data) => {
+          if (data === null) {
+            setNotice('Nothing to export: open the files or folders you chose.');
+            return;
+          }
+          postToHost({ type: 'export', fileName, format, data });
+        })
+        .catch((error: unknown) => {
+          setNotice(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+        })
+        .finally(() => {
+          setExporting(false);
+        });
+    },
+    [exportFileIds, snapshot, edgeFilters, folderTree, collapsedIds, captureNodes],
+  );
+
   const openNode = useCallback(
     (nodeId: string, filePath: string, line: number) => {
       lastNavigatedRef.current = { id: nodeId, at: performance.now() };
@@ -1465,6 +1704,7 @@ function GraphViewContent({
         folders,
         folderColors: folderColorMap,
         workspaceFolders: workspaceColorEntries,
+        unused: unusedPanel,
         hiddenFiles: filtered.hiddenFiles,
         hiddenFunctions: filtered.hiddenFunctions,
       }}
@@ -1477,6 +1717,12 @@ function GraphViewContent({
         onExit: exitFocus,
         onDepthChange: setFocusDepth,
         onDirectionChange: setFocusDirection,
+      }}
+      exportTab={{
+        items: exportItems,
+        estimate: estimateExport,
+        onExport: runExport,
+        exporting,
       }}
       view={{
         onExpandLevel: expandLevel,
@@ -1549,6 +1795,7 @@ function GraphViewContent({
           folderColors={folderColorsEnabled}
           panel={panel}
           scrollBehavior={scrollBehavior}
+          renderAll={renderAll}
         />
         {contextMenu !== null && (
           <ContextMenu

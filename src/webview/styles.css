@@ -1822,3 +1822,115 @@ body {
   margin: 6px 0 0;
   font-size: 11px;
 }
+
+/* ---------- Export tab ---------- */
+
+.cg-export-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cg-export-list {
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cg-export-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cg-export-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-export-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-export-item__name--folder {
+  font-weight: 600;
+}
+
+.cg-export-item__count {
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+/* ---------- Unused code ---------- */
+
+.cg-unused-list {
+  max-height: 260px;
+  margin: 6px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cg-unused-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cg-unused-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-unused-item__name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+.cg-unused-item__detail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+/* Marked on the canvas: a dashed outline and an "unused" tag. */
+.react-flow__node.cg-unused .cg-fn,
+.react-flow__node.cg-unused .cg-file {
+  outline: 1.5px dashed var(--vscode-editorWarning-foreground, #cca700);
+  outline-offset: 1px;
+}
+
+.react-flow__node.cg-unused .cg-fn::after,
+.react-flow__node.cg-unused .cg-file__name::after {
+  content: 'unused';
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 25%, transparent);
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-family: var(--vscode-font-family);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

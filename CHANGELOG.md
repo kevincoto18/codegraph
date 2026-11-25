@@ -25,6 +25,11 @@ All notable changes to CodeGraph Map are documented here. The format follows
   highlighted, opened and framed, with its steps in a bar.
 - **Hover cards for functions**: signature, first paragraph of the doc comment
   or docstring, and location, read on demand from the source.
+- **Unused code**: Filters → _Mark unused code_ tags functions never called
+  and files nothing uses, with a list to jump to each (likely entry points
+  left out).
+- **Export**: everything, what is on screen or chosen files and folders, as
+  PNG, SVG or a Mermaid diagram (save or copy).
 
 ### Changed
 

@@ -22,6 +22,7 @@ import { EditorSyncScheduler } from './editorSync';
 import { resolveFocusTarget } from './focusTarget';
 import type { GraphService, ScanProgressListener } from './graphService';
 import { openFileAtLine } from './navigation';
+import { decodeDataUrl, exportFilters } from './exportFiles';
 import { extractFunctionDetails } from './functionDetails';
 import { formatPerformanceReport } from './perf';
 import type { PanelPlacement } from './panel';
@@ -564,6 +565,13 @@ export class CodeGraphController implements vscode.Disposable {
       case 'preferences':
         await this.savePreferences(message.preferences);
         return;
+      case 'export':
+        await this.saveExport(message.fileName, message.format, message.data);
+        return;
+      case 'copy':
+        await vscode.env.clipboard.writeText(message.text);
+        void vscode.window.showInformationMessage('CodeGraph: diagram copied to the clipboard.');
+        return;
       case 'details':
         await this.post({
           type: 'details',
@@ -572,6 +580,51 @@ export class CodeGraphController implements vscode.Disposable {
           details: await this.readFunctionDetails(message.nodeId),
         });
         return;
+    }
+  }
+
+  /**
+   * Asks where to save an export and writes it.
+   *
+   * @param fileName - Suggested file name.
+   * @param format - Export format.
+   * @param data - Mermaid text, or the image as a `data:` URL.
+   */
+  private async saveExport(
+    fileName: string,
+    format: 'png' | 'svg' | 'mermaid',
+    data: string,
+  ): Promise<void> {
+    const bytes = format === 'mermaid' ? new TextEncoder().encode(data) : decodeDataUrl(data);
+    if (bytes === null) {
+      this.logger.warn(`Ignored an invalid ${format} export from the webview.`);
+      return;
+    }
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const target = await vscode.window.showSaveDialog({
+      ...(folder === undefined ? {} : { defaultUri: vscode.Uri.joinPath(folder, fileName) }),
+      filters: exportFilters(format),
+      saveLabel: 'Export',
+      title: 'Export the CodeGraph diagram',
+    });
+    if (target === undefined) {
+      return;
+    }
+    try {
+      await vscode.workspace.fs.writeFile(target, bytes);
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `CodeGraph: could not save the export: ${describeError(error)}`,
+      );
+      return;
+    }
+    this.logger.info(`Exported ${format} to ${target.toString(true)}.`);
+    const choice = await vscode.window.showInformationMessage(
+      `CodeGraph: exported to ${target.path.slice(target.path.lastIndexOf('/') + 1)}.`,
+      'Open',
+    );
+    if (choice === 'Open') {
+      await vscode.commands.executeCommand('vscode.open', target);
     }
   }
 

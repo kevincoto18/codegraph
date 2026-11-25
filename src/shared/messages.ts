@@ -70,6 +70,12 @@ export interface FunctionDetails {
   readonly doc: string | null;
 }
 
+/** Largest export accepted from the webview, in characters (about 64 MB). */
+export const MAX_EXPORT_SIZE = 64 * 1024 * 1024;
+
+/** Formats accepted in an `export` message. */
+const EXPORT_FORMATS: readonly string[] = ['png', 'svg', 'mermaid'];
+
 /** Longest signature or doc text accepted in a `details` message. */
 export const MAX_DETAILS_TEXT = 2000;
 
@@ -118,6 +124,18 @@ export type WebviewToHost =
   | { readonly type: 'navigate'; readonly filePath: RelPath; readonly line: number }
   /** Asks for the signature and documentation of a function (hover card). */
   | { readonly type: 'details'; readonly requestId: number; readonly nodeId: string }
+  /**
+   * Saves an export: Mermaid text, or an image as a `data:` URL. The host asks
+   * where to save it.
+   */
+  | {
+      readonly type: 'export';
+      readonly fileName: string;
+      readonly format: 'png' | 'svg' | 'mermaid';
+      readonly data: string;
+    }
+  /** Copies a text to the clipboard (Mermaid export). */
+  | { readonly type: 'copy'; readonly text: string }
   /** Request a full re-scan of the workspace. */
   | { readonly type: 'refresh' }
   /** Performance samples measured in the webview (milliseconds). */
@@ -262,6 +280,21 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHost {
         isPositiveInteger(value.requestId) &&
         typeof value.nodeId === 'string' &&
         value.nodeId.length > 0
+      );
+    case 'export':
+      return (
+        typeof value.fileName === 'string' &&
+        /^[\w.-]{1,100}$/.test(value.fileName) &&
+        EXPORT_FORMATS.includes(value.format as string) &&
+        typeof value.data === 'string' &&
+        value.data.length > 0 &&
+        value.data.length <= MAX_EXPORT_SIZE
+      );
+    case 'copy':
+      return (
+        typeof value.text === 'string' &&
+        value.text.length > 0 &&
+        value.text.length <= MAX_EXPORT_SIZE
       );
     default:
       return false;

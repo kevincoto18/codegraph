@@ -12,6 +12,16 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'metrics', samples: [{ name: 'layout.full', value: 12.5 }] }],
     [{ type: 'preferences', preferences: DEFAULT_VIEW_PREFERENCES }],
     [{ type: 'details', requestId: 7, nodeId: 'a.ts#f' }],
+    [
+      {
+        type: 'export',
+        fileName: 'codegraph-graph.png',
+        format: 'png',
+        data: 'data:image/png;base64,AA',
+      },
+    ],
+    [{ type: 'export', fileName: 'codegraph-graph.mmd', format: 'mermaid', data: 'flowchart LR' }],
+    [{ type: 'copy', text: 'flowchart LR' }],
   ])('accepts %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(true);
   });
@@ -32,6 +42,10 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'preferences' }],
     [{ type: 'preferences', preferences: { editorSync: true } }],
     [{ type: 'details', requestId: 0, nodeId: 'a.ts#f' }],
+    [{ type: 'export', fileName: '../evil.png', format: 'png', data: 'x' }],
+    [{ type: 'export', fileName: 'a.pdf', format: 'pdf', data: 'x' }],
+    [{ type: 'export', fileName: 'a.png', format: 'png', data: '' }],
+    [{ type: 'copy', text: '' }],
     [{ type: 'details', requestId: 1, nodeId: '' }],
     [{ type: 'details', requestId: 1 }],
   ])('rejects %j', (message) => {

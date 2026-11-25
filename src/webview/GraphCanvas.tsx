@@ -43,6 +43,8 @@ interface GraphCanvasProps {
   readonly panel: ReactNode;
   /** What the mouse wheel and two-finger scrolling do. */
   readonly scrollBehavior: ScrollBehavior;
+  /** Renders every node, not only the visible ones (image export). */
+  readonly renderAll: boolean;
 }
 
 /** Shared empty edge list used while edges are hidden. */
@@ -89,6 +91,7 @@ export function GraphCanvas({
   folderColors,
   panel,
   scrollBehavior,
+  renderAll,
 }: GraphCanvasProps): JSX.Element {
   // Mount at the final zoom (see computeFitViewport) instead of fitting afterwards.
   const [initialViewport] = useState(
@@ -126,7 +129,7 @@ export function GraphCanvas({
       panActivationKeyCode={null}
       nodesConnectable={false}
       edgesFocusable={false}
-      onlyRenderVisibleElements
+      onlyRenderVisibleElements={!renderAll}
       zIndexMode="auto"
       minZoom={MIN_ZOOM}
       defaultViewport={initialViewport}

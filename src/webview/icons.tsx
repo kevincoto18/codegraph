@@ -21,7 +21,8 @@ export type IconName =
   | 'expand'
   | 'expandAll'
   | 'collapseAll'
-  | 'relayout';
+  | 'relayout'
+  | 'download';
 
 /** Paths of each icon, in a 16×16 view box. */
 const ICON_PATHS: Readonly<Record<IconName, ReactNode>> = {
@@ -94,6 +95,7 @@ const ICON_PATHS: Readonly<Record<IconName, ReactNode>> = {
       <path d="M9.5 4.5H12a1 1 0 0 1 1 1V7M6.5 11.5H4a1 1 0 0 1-1-1V9" />
     </>
   ),
+  download: <path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 11v2.5h11V11" />,
 };
 
 /** Props of {@link Icon}. */

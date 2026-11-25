@@ -6,6 +6,9 @@ import { SidebarSection, Segmented, SwitchRow } from './controls';
 import type { SegmentOption } from './controls';
 import type { FocusDirection } from './focus';
 import { FOCUS_DEPTHS, FOCUS_DIRECTIONS } from './focus';
+import type { ExportTabProps } from './ExportTab';
+import type { UnusedCodePanel } from './FiltersTab';
+import { ExportTab } from './ExportTab';
 import type { FolderColorEntry, WorkspaceColorEntry } from './folderColors';
 import { FiltersTab } from './FiltersTab';
 import type { IconName } from './icons';
@@ -16,7 +19,7 @@ import type { SearchTabProps } from './SearchTab';
 import { SearchTab } from './SearchTab';
 
 /** Tabs of the sidebar. */
-export type SidebarTab = 'search' | 'connections' | 'filters' | 'focus' | 'view';
+export type SidebarTab = 'search' | 'connections' | 'filters' | 'focus' | 'view' | 'export';
 
 /** Most folders listed in the color legend. */
 const MAX_LISTED_FOLDER_COLORS = 12;
@@ -34,6 +37,8 @@ export interface SidebarFilters {
   readonly folderColors: ReadonlyMap<RelPath, string>;
   /** Workspace folders with their colors (multi-root); empty with one folder. */
   readonly workspaceFolders: readonly WorkspaceColorEntry[];
+  /** Unused code detection. */
+  readonly unused: UnusedCodePanel;
   readonly hiddenFiles: number;
   readonly hiddenFunctions: number;
 }
@@ -79,6 +84,7 @@ interface SidebarProps {
   readonly filters: SidebarFilters;
   readonly focus: SidebarFocus;
   readonly view: SidebarView;
+  readonly exportTab: ExportTabProps;
 }
 
 /** Rail entries, in display order. */
@@ -92,6 +98,7 @@ const TABS: readonly {
   { id: 'filters', icon: 'filter', title: 'Filters' },
   { id: 'focus', icon: 'focus', title: 'Focus' },
   { id: 'view', icon: 'view', title: 'View' },
+  { id: 'export', icon: 'download', title: 'Export' },
 ];
 
 /** Options of the focus depth selector. */
@@ -171,7 +178,7 @@ function RailButton({ icon, title, active, onClick, badge }: RailButtonProps): J
  */
 export function Sidebar(props: SidebarProps): JSX.Element {
   const [tab, setTab] = useState<SidebarTab | null>(null);
-  const { search, connections, onConnectionsChange, filters, focus, view } = props;
+  const { search, connections, onConnectionsChange, filters, focus, view, exportTab } = props;
 
   // Ctrl/Cmd+F opens the search tab from anywhere in the webview.
   useEffect(() => {
@@ -208,6 +215,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     filters: activeFilters === 0 ? null : activeFilters,
     focus: focus.label === null ? null : <span className="cg-rail__dot" />,
     view: view.editorSync ? <span className="cg-rail__dot" /> : null,
+    export: null,
   };
   const current = TABS.find((entry) => entry.id === tab);
 
@@ -302,6 +310,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                 folders={filters.folders}
                 folderColors={filters.folderColors}
                 workspaceFolders={filters.workspaceFolders}
+                unused={filters.unused}
                 hiddenFiles={filters.hiddenFiles}
                 hiddenFunctions={filters.hiddenFunctions}
               />
@@ -361,6 +370,8 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                 </div>
               </>
             )}
+
+            {current.id === 'export' && <ExportTab {...exportTab} />}
 
             {current.id === 'view' && (
               <>
