@@ -17,6 +17,7 @@ export type {
 export type {
   AnalysisState,
   CollapseMode,
+  FunctionDetails,
   FolderViewMode,
   GraphInitMessage,
   HostToWebview,
@@ -29,6 +30,7 @@ export {
   COLLAPSE_MODES,
   FOLDER_VIEW_MODES,
   SCROLL_BEHAVIORS,
+  MAX_DETAILS_TEXT,
   MAX_METRIC_SAMPLES,
   MAX_WORKSPACE_ROOTS,
   createGraphInitMessages,

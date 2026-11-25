@@ -11,7 +11,23 @@ export type ContextMenuAction =
   | { readonly type: 'focus'; readonly nodeId: string; readonly direction: FocusDirection }
   | { readonly type: 'navigate'; readonly nodeId: string }
   | { readonly type: 'toggleFolder'; readonly nodeId: string }
-  | { readonly type: 'exitFocus' };
+  | { readonly type: 'exitFocus' }
+  /** Starts a path: the next clicked node is its destination. */
+  | { readonly type: 'pathFrom'; readonly nodeId: string }
+  /** Shows the path from the picked start to this node. */
+  | { readonly type: 'pathTo'; readonly nodeId: string }
+  | { readonly type: 'clearPath' };
+
+/** Path mode, as far as the menu is concerned. */
+export interface PathMenuState {
+  /** Start picked with "Find path from here", waiting for a destination. */
+  readonly origin: string | null;
+  /** Whether a path (or a "no path" result) is shown. */
+  readonly shown: boolean;
+}
+
+/** No path mode. */
+const NO_PATH: PathMenuState = { origin: null, shown: false };
 
 /** One entry of the canvas context menu. */
 export interface ContextMenuItem {
@@ -39,16 +55,18 @@ export interface ContextMenuState {
  * Builds the entries of the canvas context menu.
  *
  * Files and functions can be focused in each direction or opened in the
- * editor, folders can be opened or closed, and "Exit focus" is added
- * whenever focus mode is active.
+ * editor or used as the ends of a path, folders can be opened or closed, and
+ * "Exit focus" / "Clear path" are added while those modes are active.
  *
  * @param target - What was right-clicked.
  * @param focusActive - Whether focus mode is currently on.
+ * @param path - Path mode state.
  * @returns The menu entries; empty when there is nothing to offer.
  */
 export function getContextMenuItems(
   target: ContextMenuTarget,
   focusActive: boolean,
+  path: PathMenuState = NO_PATH,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   if (target.kind === 'node') {
@@ -65,6 +83,22 @@ export function getContextMenuItems(
         label: 'Show what it uses',
         action: { type: 'focus', nodeId, direction: 'outgoing' },
       },
+      ...(path.origin !== null && path.origin !== nodeId
+        ? [
+            {
+              key: 'pathTo',
+              label: 'Path to here',
+              action: { type: 'pathTo', nodeId } as const,
+              separatorBefore: true,
+            },
+          ]
+        : []),
+      {
+        key: 'pathFrom',
+        label: 'Find path from here…',
+        action: { type: 'pathFrom', nodeId },
+        separatorBefore: path.origin === null || path.origin === nodeId,
+      },
       {
         key: 'navigate',
         label: 'Go to code',
@@ -77,6 +111,14 @@ export function getContextMenuItems(
       key: 'toggle',
       label: 'Open / close folder',
       action: { type: 'toggleFolder', nodeId: target.nodeId },
+    });
+  }
+  if (path.origin !== null || path.shown) {
+    items.push({
+      key: 'clearPath',
+      label: 'Clear path',
+      action: { type: 'clearPath' },
+      separatorBefore: items.length > 0,
     });
   }
   if (focusActive) {

@@ -63,6 +63,12 @@ import { computeViewLayout, isViewLayoutCurrent } from './viewLayout';
 import { useDebouncedValue } from './useDebouncedValue';
 import type { SavedView } from './viewState';
 import { describeCollapseChanges, restoreCollapsed } from './viewState';
+import type { PathBarState } from './PathBar';
+import { PathBar } from './PathBar';
+import { HoverCard } from './HoverCard';
+import { useFunctionDetails } from './useFunctionDetails';
+import type { GraphPath } from './pathFinder';
+import { findShortestPath, getPathDisplay, pathClassOfNode, pathStepKey } from './pathFinder';
 import type { Box } from './viewportMath';
 import {
   CONTAINER_ZOOM,
@@ -127,6 +133,9 @@ const NOTICE_MS = 6000;
 
 /** Most matches revealed (by expanding their folders and files) when pressing Enter. */
 const MAX_REVEALED_MATCHES = 50;
+
+/** Time the pointer rests on a function before its hover card shows, in milliseconds. */
+const HOVER_CARD_DELAY_MS = 400;
 
 /** Quiet period before the view is saved, in milliseconds. */
 const VIEW_SAVE_DELAY_MS = 300;
@@ -313,6 +322,21 @@ function GraphViewContent({
     savedView?.focus?.direction ?? 'both',
   );
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  /** Start of a path being picked ("Find path from here"), waiting for its destination. */
+  const [pathOrigin, setPathOrigin] = useState<string | null>(null);
+  /** Path shown on the canvas: its ends and the result (`null` when none was found). */
+  const [shownPath, setShownPath] = useState<{
+    readonly from: string;
+    readonly to: string;
+    readonly path: GraphPath | null;
+  } | null>(null);
+  /** Function under the pointer whose hover card is shown, with its screen box. */
+  const [hovered, setHovered] = useState<{
+    readonly nodeId: string;
+    readonly anchor: { readonly left: number; readonly top: number; readonly bottom: number };
+  } | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const functionDetails = useFunctionDetails(fullSnapshot);
   /** Node highlighted because the editor cursor is on it (editor sync). */
   const [syncedId, setSyncedId] = useState<string | null>(null);
   /** Search result selected in the list, and whether it was shown on the canvas. */
@@ -419,10 +443,18 @@ function GraphViewContent({
     () => (focus === null ? null : getFocusedDisplayIds(current.nodes, focus, folderTree)),
     [focus, current.nodes, folderTree],
   );
+  const pathDisplay = useMemo(
+    () =>
+      shownPath?.path === null || shownPath === null
+        ? null
+        : getPathDisplay(current.nodes, shownPath.path),
+    [shownPath, current.nodes],
+  );
   const displayedNodes = useMemo(
     () =>
       nodeDecorator.apply(mountedNodes, (node) =>
         joinClassNames(
+          pathClassOfNode(node.id, pathDisplay),
           searchClassOfNode(node.id, search),
           highlightedChangeIds.has(node.id) ? 'cg-changed' : undefined,
           focusedIds === null || focusedIds.has(node.id) ? undefined : 'cg-focus-dimmed',
@@ -440,12 +472,21 @@ function GraphViewContent({
       activeFocusId,
       syncedId,
       currentMatchId,
+      pathDisplay,
     ],
   );
-  const visibleEdges = useMemo(
-    () => filterEdges(mountedEdges, current.nodes, edgeFilters),
-    [mountedEdges, current.nodes, edgeFilters],
-  );
+  const visibleEdges = useMemo(() => {
+    const filtered = filterEdges(mountedEdges, current.nodes, edgeFilters);
+    if (pathDisplay === null) {
+      return filtered;
+    }
+    // The steps of a path stay visible even when their kind is filtered out.
+    const shown = new Set(filtered);
+    const steps = mountedEdges.filter(
+      (edge) => !shown.has(edge) && pathDisplay.steps.has(pathStepKey(edge.source, edge.target)),
+    );
+    return steps.length === 0 ? filtered : [...filtered, ...steps];
+  }, [mountedEdges, current.nodes, edgeFilters, pathDisplay]);
   const displayedEdges = useMemo(
     () =>
       edgeDecorator.apply(visibleEdges, (edge) =>
@@ -454,9 +495,14 @@ function GraphViewContent({
           focusedIds === null || (focusedIds.has(edge.source) && focusedIds.has(edge.target))
             ? undefined
             : 'cg-focus-dimmed',
+          pathDisplay === null
+            ? undefined
+            : pathDisplay.steps.has(pathStepKey(edge.source, edge.target))
+              ? 'cg-path-edge'
+              : 'cg-focus-dimmed',
         ),
       ),
-    [edgeDecorator, visibleEdges, search, focusedIds],
+    [edgeDecorator, visibleEdges, search, focusedIds, pathDisplay],
   );
   const showMinimap = shouldShowMinimap(minimapPreference, displayedNodes.length);
   const summary = useMemo(() => summarizeGraph(fullSnapshot), [fullSnapshot]);
@@ -818,6 +864,72 @@ function GraphViewContent({
     [query, debouncedQuery, hits, searchData],
   );
 
+  /**
+   * Finds and shows the shortest path between two nodes: opens what hides
+   * it and frames it. Focus mode is left, as the path replaces it.
+   *
+   * @param from - Start node.
+   * @param to - End node.
+   */
+  const showPath = useCallback(
+    (from: string, to: string) => {
+      const path = findShortestPath(snapshot, from, to);
+      setPathOrigin(null);
+      setFocusId(null);
+      setShownPath({ from, to, path });
+      if (path === null) {
+        return;
+      }
+      const fit: FitViewOptions<CodeGraphFlowNode> = {
+        nodes: path.nodeIds.map((id) => ({ id })),
+        duration: VIEWPORT_ANIMATION_MS,
+        maxZoom: SEARCH_MAX_ZOOM,
+      };
+      const toExpand = [...getIdsToReveal(snapshot, folderTree, path.nodeIds)].filter((id) =>
+        collapsedIds.has(id),
+      );
+      if (toExpand.length > 0) {
+        pendingFitRef.current = fit;
+        setCollapsedIds((collapsed) => {
+          const next = new Set(collapsed);
+          toExpand.forEach((id) => next.delete(id));
+          return next;
+        });
+        return;
+      }
+      void fitView(fit);
+    },
+    [snapshot, folderTree, collapsedIds, fitView],
+  );
+
+  /** Leaves path mode (picking or showing). */
+  const clearPath = useCallback(() => {
+    setPathOrigin(null);
+    setShownPath(null);
+  }, []);
+
+  // Escape leaves path mode.
+  useEffect(() => {
+    if (pathOrigin === null && shownPath === null) {
+      return undefined;
+    }
+    /**
+     * Clears the path on Escape (not while typing).
+     *
+     * @param event - Keyboard event.
+     */
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (event.key === 'Escape' && target?.tagName !== 'INPUT') {
+        clearPath();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [pathOrigin, shownPath, clearPath]);
+
   const zoomToMatches = useCallback(() => {
     const latest = latestHits();
     if (latest.length === 0) {
@@ -973,6 +1085,12 @@ function GraphViewContent({
         toggle(node.id);
         return;
       }
+      if (pathOrigin !== null) {
+        if (node.id !== pathOrigin) {
+          showPath(pathOrigin, node.id);
+        }
+        return;
+      }
       if (activeFocusId !== null && node.id !== activeFocusId) {
         enterFocus(node.id);
       }
@@ -989,7 +1107,7 @@ function GraphViewContent({
       lastNavigatedRef.current = { id: node.id, at: performance.now() };
       onNavigate(node.data.filePath, node.data.line);
     },
-    [onNavigate, toggle, activeFocusId, enterFocus],
+    [onNavigate, toggle, activeFocusId, enterFocus, pathOrigin, showPath],
   );
 
   const handleNodeContextMenu = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
@@ -999,19 +1117,25 @@ function GraphViewContent({
         node.type === 'folder'
           ? { kind: 'folder', nodeId: node.id }
           : { kind: 'node', nodeId: node.id, nodeType: node.type };
-      const items = getContextMenuItems(target, activeFocusId !== null);
+      const items = getContextMenuItems(target, activeFocusId !== null, {
+        origin: pathOrigin,
+        shown: shownPath !== null,
+      });
       setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
     },
-    [activeFocusId],
+    [activeFocusId, pathOrigin, shownPath],
   );
 
   const handlePaneContextMenu = useCallback(
     (event: MouseEvent | ReactMouseEvent) => {
       event.preventDefault();
-      const items = getContextMenuItems({ kind: 'pane' }, activeFocusId !== null);
+      const items = getContextMenuItems({ kind: 'pane' }, activeFocusId !== null, {
+        origin: pathOrigin,
+        shown: shownPath !== null,
+      });
       setContextMenu(items.length === 0 ? null : { x: event.clientX, y: event.clientY, items });
     },
-    [activeFocusId],
+    [activeFocusId, pathOrigin, shownPath],
   );
 
   const closeContextMenu = useCallback(() => {
@@ -1067,10 +1191,53 @@ function GraphViewContent({
 
   // While panning or zooming, a lighter style is used (see `.cg-moving` in styles.css).
   // The class is toggled on the DOM directly so moving never re-renders the view.
+  /** Hides the hover card and cancels a pending one. */
+  const hideHoverCard = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHovered(null);
+  }, []);
+
+  const handleNodeMouseEnter = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
+    (event, node) => {
+      hideHoverCard();
+      if (node.type !== 'function') {
+        return;
+      }
+      const element = (event.currentTarget as Element | null) ?? null;
+      hoverTimerRef.current = setTimeout(() => {
+        hoverTimerRef.current = null;
+        const box = element?.getBoundingClientRect();
+        if (box === undefined) {
+          return;
+        }
+        functionDetails.request(node.id);
+        setHovered({
+          nodeId: node.id,
+          anchor: { left: box.left, top: box.top, bottom: box.bottom },
+        });
+      }, HOVER_CARD_DELAY_MS);
+    },
+    [hideHoverCard, functionDetails],
+  );
+
+  // A pending hover card never outlives the view.
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current !== null) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const handleMoveStart = useCallback(() => {
     setContextMenu(null);
+    hideHoverCard();
     canvasRef.current?.classList.add('cg-moving');
-  }, []);
+  }, [hideHoverCard]);
 
   const handleMoveEnd = useCallback(() => {
     canvasRef.current?.classList.remove('cg-moving');
@@ -1097,9 +1264,21 @@ function GraphViewContent({
         case 'exitFocus':
           setFocusId(null);
           break;
+        case 'pathFrom':
+          setShownPath(null);
+          setPathOrigin(action.nodeId);
+          break;
+        case 'pathTo':
+          if (pathOrigin !== null) {
+            showPath(pathOrigin, action.nodeId);
+          }
+          break;
+        case 'clearPath':
+          clearPath();
+          break;
       }
     },
-    [enterFocus, snapshot, onNavigate, toggle],
+    [enterFocus, snapshot, onNavigate, toggle, pathOrigin, showPath, clearPath],
   );
 
   const handleNodeDoubleClick = useCallback<NodeMouseHandler<CodeGraphFlowNode>>(
@@ -1204,6 +1383,57 @@ function GraphViewContent({
     setMinimapPreference(showMinimap ? 'off' : 'on');
   }, [showMinimap]);
 
+  const pathBarState = useMemo((): PathBarState | null => {
+    const labels = new Map(fullSnapshot.nodes.map((node) => [node.id, node.label]));
+    /**
+     * Name of a node for the path bar.
+     *
+     * @param id - Node id.
+     * @returns Its label, or the id when it no longer exists.
+     */
+    const labelOf = (id: string): string => labels.get(id) ?? id;
+    if (pathOrigin !== null) {
+      return { kind: 'picking', origin: labelOf(pathOrigin) };
+    }
+    if (shownPath === null) {
+      return null;
+    }
+    if (shownPath.path === null) {
+      return { kind: 'none', from: labelOf(shownPath.from), to: labelOf(shownPath.to) };
+    }
+    return {
+      kind: 'found',
+      steps: shownPath.path.nodeIds.map((id) => ({ id, label: labelOf(id) })),
+      reversed: shownPath.path.reversed,
+      level: shownPath.path.level,
+    };
+  }, [pathOrigin, shownPath, fullSnapshot]);
+
+  const hoveredCard = useMemo(() => {
+    if (hovered === null || contextMenu !== null) {
+      return null;
+    }
+    const node = fullSnapshot.nodes.find((item) => item.id === hovered.nodeId);
+    if (node?.kind !== 'function') {
+      return null;
+    }
+    const location = [
+      `${node.filePath} · line ${String(node.line)}`,
+      node.functionKind,
+      node.exported ? 'exported' : undefined,
+    ]
+      .filter((part): part is string => part !== undefined)
+      .join(' · ');
+    return (
+      <HoverCard
+        anchor={hovered.anchor}
+        name={node.qualifiedName}
+        location={location}
+        details={functionDetails.details.get(node.id)}
+      />
+    );
+  }, [hovered, contextMenu, fullSnapshot, functionDetails.details]);
+
   const openNode = useCallback(
     (nodeId: string, filePath: string, line: number) => {
       lastNavigatedRef.current = { id: nodeId, at: performance.now() };
@@ -1292,6 +1522,10 @@ function GraphViewContent({
         </button>
       </StatusBar>
       <main className="cg-canvas" ref={canvasRef}>
+        {pathBarState !== null && (
+          <PathBar state={pathBarState} onStep={bringIntoView} onClose={clearPath} />
+        )}
+        {hoveredCard}
         {notice !== null && (
           <div className="cg-notice" role="status">
             {notice}
@@ -1304,6 +1538,8 @@ function GraphViewContent({
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
           onNodeContextMenu={handleNodeContextMenu}
+          onNodeMouseEnter={handleNodeMouseEnter}
+          onNodeMouseLeave={hideHoverCard}
           onPaneContextMenu={handlePaneContextMenu}
           onMoveStart={handleMoveStart}
           onMoveEnd={handleMoveEnd}

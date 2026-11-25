@@ -133,6 +133,9 @@ export function reduceHostMessage(
       };
     case 'preferences':
       return { ...state, preferences: message.preferences };
+    case 'details':
+      // Hover details are handled by `useFunctionDetails`, not by the graph channel.
+      return state;
     case 'status':
       return {
         ...state,

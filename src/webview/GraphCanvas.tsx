@@ -21,6 +21,10 @@ interface GraphCanvasProps {
   readonly onNodeDoubleClick: NodeMouseHandler<CodeGraphFlowNode>;
   /** Called when a node is right-clicked (opens the context menu). */
   readonly onNodeContextMenu: NodeMouseHandler<CodeGraphFlowNode>;
+  /** Called when the pointer enters a node (hover card). */
+  readonly onNodeMouseEnter: NodeMouseHandler<CodeGraphFlowNode>;
+  /** Called when the pointer leaves a node. */
+  readonly onNodeMouseLeave: NodeMouseHandler<CodeGraphFlowNode>;
   /** Called when the background is right-clicked. */
   readonly onPaneContextMenu: (event: MouseEvent | ReactMouseEvent) => void;
   /** Called when the user starts panning or zooming. */
@@ -74,6 +78,8 @@ export function GraphCanvas({
   onNodeClick,
   onNodeDoubleClick,
   onNodeContextMenu,
+  onNodeMouseEnter,
+  onNodeMouseLeave,
   onPaneContextMenu,
   onMoveStart,
   onMoveEnd,
@@ -110,6 +116,8 @@ export function GraphCanvas({
       onNodeClick={onNodeClick}
       onNodeDoubleClick={onNodeDoubleClick}
       onNodeContextMenu={onNodeContextMenu}
+      onNodeMouseEnter={onNodeMouseEnter}
+      onNodeMouseLeave={onNodeMouseLeave}
       onPaneContextMenu={onPaneContextMenu}
       onMoveStart={onMoveStart}
       onMoveEnd={onMoveEnd}

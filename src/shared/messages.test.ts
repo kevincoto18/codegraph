@@ -11,6 +11,7 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'metrics', samples: [] }],
     [{ type: 'metrics', samples: [{ name: 'layout.full', value: 12.5 }] }],
     [{ type: 'preferences', preferences: DEFAULT_VIEW_PREFERENCES }],
+    [{ type: 'details', requestId: 7, nodeId: 'a.ts#f' }],
   ])('accepts %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(true);
   });
@@ -30,6 +31,9 @@ describe('isWebviewToHostMessage', () => {
     [{ type: 'metrics', samples: Array.from({ length: 101 }, () => ({ name: 'x', value: 1 })) }],
     [{ type: 'preferences' }],
     [{ type: 'preferences', preferences: { editorSync: true } }],
+    [{ type: 'details', requestId: 0, nodeId: 'a.ts#f' }],
+    [{ type: 'details', requestId: 1, nodeId: '' }],
+    [{ type: 'details', requestId: 1 }],
   ])('rejects %j', (message) => {
     expect(isWebviewToHostMessage(message)).toBe(false);
   });
@@ -96,6 +100,16 @@ describe('isHostToWebviewMessage', () => {
         },
       },
     ],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f', details: null }],
+    [
+      {
+        type: 'details',
+        requestId: 2,
+        nodeId: 'a.ts#f',
+        details: { signature: 'f(): void', doc: 'Runs.' },
+      },
+    ],
+    [{ type: 'details', requestId: 3, nodeId: 'a.ts#f', details: { signature: 'f()', doc: null } }],
   ])('accepts %j', (message) => {
     expect(isHostToWebviewMessage(message)).toBe(true);
   });
@@ -177,6 +191,17 @@ describe('isHostToWebviewMessage', () => {
     ],
     [{ type: 'options' }],
     [{ type: 'options', options: [] }],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f', details: { signature: 1, doc: null } }],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f', details: { signature: 'f()', doc: 2 } }],
+    [
+      {
+        type: 'details',
+        requestId: 1,
+        nodeId: 'a.ts#f',
+        details: { signature: 'x'.repeat(2001), doc: null },
+      },
+    ],
+    [{ type: 'details', requestId: 1, nodeId: 'a.ts#f' }],
   ])('rejects %j', (message) => {
     expect(isHostToWebviewMessage(message)).toBe(false);
   });

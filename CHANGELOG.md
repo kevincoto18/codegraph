@@ -20,6 +20,12 @@ All notable changes to CodeGraph Map are documented here. The format follows
   folder; **Filters → Workspace folders** hides a whole project; tooltips show
   `project › path`.
 
+- **Path between two nodes**: right-click → _Find path from here…_, then pick
+  the destination; the shortest chain of calls (or imports between files) is
+  highlighted, opened and framed, with its steps in a bar.
+- **Hover cards for functions**: signature, first paragraph of the doc comment
+  or docstring, and location, read on demand from the source.
+
 ### Changed
 
 - **Clicking a file opens or closes its function list** instead of opening the

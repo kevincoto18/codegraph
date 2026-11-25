@@ -1666,3 +1666,159 @@ body {
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
+
+/* ---------- Path between two nodes ---------- */
+
+.react-flow__node.cg-path-node .cg-file,
+.react-flow__node.cg-path-node .cg-fn {
+  border-color: var(--vscode-charts-orange, #d18616);
+  box-shadow: 0 0 0 1.5px var(--vscode-charts-orange, #d18616);
+}
+
+.react-flow__node.cg-path-end .cg-file,
+.react-flow__node.cg-path-end .cg-fn {
+  box-shadow:
+    0 0 0 2px var(--vscode-charts-orange, #d18616),
+    0 0 12px color-mix(in srgb, var(--vscode-charts-orange, #d18616) 60%, transparent);
+}
+
+.react-flow__edge.cg-path-edge .react-flow__edge-path {
+  stroke: var(--vscode-charts-orange, #d18616);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 4;
+  animation: cg-path-flow 0.8s linear infinite;
+}
+
+@keyframes cg-path-flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.cg-path-edge .react-flow__edge-path {
+    animation: none;
+  }
+}
+
+.cg-path-bar {
+  position: absolute;
+  z-index: 11;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(80%, 900px);
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--vscode-charts-orange, #d18616);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  font-size: 12px;
+}
+
+.cg-path-bar__text,
+.cg-path-bar__meta {
+  white-space: nowrap;
+}
+
+.cg-path-bar__meta {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-path-bar__steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.cg-path-bar__steps li {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.cg-path-bar__arrow {
+  margin: 0 4px;
+  color: var(--vscode-charts-orange, #d18616);
+}
+
+.cg-path-bar__step {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cg-path-bar__step:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cg-path-bar__close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cg-path-bar__close:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/* ---------- Hover card of a function ---------- */
+
+.cg-hover-card {
+  position: fixed;
+  z-index: 30;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545));
+  border-radius: 6px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.cg-hover-card__signature {
+  display: block;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--vscode-foreground);
+}
+
+.cg-hover-card__doc {
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+
+.cg-hover-card__doc--muted,
+.cg-hover-card__meta {
+  color: var(--vscode-descriptionForeground);
+}
+
+.cg-hover-card__meta {
+  margin: 6px 0 0;
+  font-size: 11px;
+}

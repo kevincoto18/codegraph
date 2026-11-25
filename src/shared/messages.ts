@@ -53,7 +53,25 @@ export type HostToWebview =
   /** Highlight and center the file or function under the editor cursor (editor sync). */
   | { readonly type: 'reveal'; readonly nodeId: string }
   /** Stored view preferences of the workspace. */
-  | { readonly type: 'preferences'; readonly preferences: ViewPreferences };
+  | { readonly type: 'preferences'; readonly preferences: ViewPreferences }
+  /** Answer to a `details` request: signature and documentation of a function. */
+  | {
+      readonly type: 'details';
+      readonly requestId: number;
+      readonly nodeId: string;
+      readonly details: FunctionDetails | null;
+    };
+
+/** Signature and documentation of a function, read from its source. */
+export interface FunctionDetails {
+  /** Declaration line(s), whitespace collapsed (e.g. `save(user: User): void`). */
+  readonly signature: string;
+  /** First paragraph of its doc comment or docstring, if any. */
+  readonly doc: string | null;
+}
+
+/** Longest signature or doc text accepted in a `details` message. */
+export const MAX_DETAILS_TEXT = 2000;
 
 /**
  * One part of a full graph. A graph is sent as a sequence of these messages
@@ -98,6 +116,8 @@ export type WebviewToHost =
   | { readonly type: 'ready' }
   /** Request to open a file and place the cursor at a 1-based line. */
   | { readonly type: 'navigate'; readonly filePath: RelPath; readonly line: number }
+  /** Asks for the signature and documentation of a function (hover card). */
+  | { readonly type: 'details'; readonly requestId: number; readonly nodeId: string }
   /** Request a full re-scan of the workspace. */
   | { readonly type: 'refresh' }
   /** Performance samples measured in the webview (milliseconds). */
@@ -237,9 +257,32 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHost {
       );
     case 'preferences':
       return isViewPreferences(value.preferences);
+    case 'details':
+      return (
+        isPositiveInteger(value.requestId) &&
+        typeof value.nodeId === 'string' &&
+        value.nodeId.length > 0
+      );
     default:
       return false;
   }
+}
+
+/**
+ * Checks the details of a function sent by the host.
+ *
+ * @param value - Value to inspect.
+ * @returns `true` for valid details or `null`.
+ */
+function isFunctionDetailsOrNull(value: unknown): value is FunctionDetails | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      typeof value.signature === 'string' &&
+      value.signature.length <= MAX_DETAILS_TEXT &&
+      (value.doc === null ||
+        (typeof value.doc === 'string' && value.doc.length <= MAX_DETAILS_TEXT)))
+  );
 }
 
 /**
@@ -280,6 +323,13 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebview {
       return typeof value.nodeId === 'string' && value.nodeId !== '';
     case 'preferences':
       return isViewPreferences(value.preferences);
+    case 'details':
+      return (
+        isPositiveInteger(value.requestId) &&
+        typeof value.nodeId === 'string' &&
+        value.nodeId.length > 0 &&
+        isFunctionDetailsOrNull(value.details)
+      );
     case 'status':
       return (
         ANALYSIS_STATES.includes(value.state as AnalysisState) &&

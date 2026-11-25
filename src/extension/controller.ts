@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import * as vscode from 'vscode';
 
 import type {
+  FunctionDetails,
   GraphPatch,
   GraphSnapshot,
   HostToWebview,
@@ -21,6 +22,7 @@ import { EditorSyncScheduler } from './editorSync';
 import { resolveFocusTarget } from './focusTarget';
 import type { GraphService, ScanProgressListener } from './graphService';
 import { openFileAtLine } from './navigation';
+import { extractFunctionDetails } from './functionDetails';
 import { formatPerformanceReport } from './perf';
 import type { PanelPlacement } from './panel';
 import { CodeGraphPanel } from './panel';
@@ -562,6 +564,39 @@ export class CodeGraphController implements vscode.Disposable {
       case 'preferences':
         await this.savePreferences(message.preferences);
         return;
+      case 'details':
+        await this.post({
+          type: 'details',
+          requestId: message.requestId,
+          nodeId: message.nodeId,
+          details: await this.readFunctionDetails(message.nodeId),
+        });
+        return;
+    }
+  }
+
+  /**
+   * Reads the signature and documentation of a function from its file, for
+   * the hover card.
+   *
+   * @param nodeId - Function node id.
+   * @returns The details, or `null` when the function or its file is gone.
+   */
+  private async readFunctionDetails(nodeId: string): Promise<FunctionDetails | null> {
+    const session = this.session;
+    if (session?.service.hasScanned !== true) {
+      return null;
+    }
+    const node = session.service.getSnapshot().nodes.find((item) => item.id === nodeId);
+    if (node?.kind !== 'function') {
+      return null;
+    }
+    try {
+      const text = await session.reader.readFile(node.filePath);
+      return extractFunctionDetails(text, node.filePath, node.line);
+    } catch (error) {
+      this.logger.warn(`Could not read details of ${nodeId}: ${describeError(error)}`);
+      return null;
     }
   }
 
