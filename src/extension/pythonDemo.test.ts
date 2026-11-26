@@ -65,7 +65,7 @@ describe('python demo project', async () => {
     ]);
   });
 
-  it('resolves imports: relative, absolute, packages and from-imports', () => {
+  it('resolves imports: relative, absolute, packages and from-imports (submodules without their package)', () => {
     expect(
       graph.edges
         .filter((edge) => edge.kind === 'import')
@@ -73,18 +73,16 @@ describe('python demo project', async () => {
         .sort(),
     ).toEqual([
       'app/__init__.py -> app/services/user_service.py',
-      'app/main.py -> app/__init__.py',
       'app/main.py -> app/config.py',
       'app/main.py -> app/services/user_service.py',
       'app/main.py -> app/utils.py',
-      'app/services/user_service.py -> app/__init__.py',
       'app/services/user_service.py -> app/config.py',
       'app/services/user_service.py -> app/utils.py',
       'scripts/run.py -> app/main.py',
     ]);
   });
 
-  it('resolves calls: local, imported, module members, static and self methods', () => {
+  it('resolves calls: local, imported, module members, static and self methods, module level', () => {
     expect(
       graph.edges
         .filter((edge) => edge.kind === 'call')
@@ -98,9 +96,11 @@ describe('python demo project', async () => {
       'app/main.py#main -> app/utils.py#slugify',
       'app/services/user_service.py#UserService._save -> app/config.py#load',
       'app/services/user_service.py#UserService._save -> app/services/user_service.py#UserService.validate',
+      'app/services/user_service.py#UserService.create -> app/services/user_service.py#UserService._save',
       'app/services/user_service.py#UserService.create -> app/utils.py#slugify',
       'app/utils.py#normalize -> app/utils.py#slugify',
       'app/utils.py#slugify -> app/utils.py#_clean',
+      'scripts/run.py -> scripts/run.py#cli',
       'scripts/run.py#cli -> app/main.py#main',
     ]);
   });

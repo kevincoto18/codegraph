@@ -150,6 +150,10 @@ export class IncrementalLinker {
   private readonly dependents = new Map<RelPath, Set<RelPath>>();
   /** Files each file imports bindings from. */
   private readonly dependencies = new Map<RelPath, readonly RelPath[]>();
+  /** Files whose types a file's calls were resolved with (Python), by file. */
+  private readonly typeDependencies = new Map<RelPath, readonly RelPath[]>();
+  /** Reverse of {@link typeDependencies}. */
+  private readonly typeDependents = new Map<RelPath, Set<RelPath>>();
   /** Namespaces and types of the namespace-based languages (Java, C#, Go). */
   private readonly symbols = new SymbolTable();
   /** Lazily assembled full graph; `null` after any change. */
@@ -188,6 +192,8 @@ export class IncrementalLinker {
     this.watchedPaths.clear();
     this.dependents.clear();
     this.dependencies.clear();
+    this.typeDependencies.clear();
+    this.typeDependents.clear();
     this.symbols.clear();
     this.assembled = null;
   }
@@ -236,6 +242,7 @@ export class IncrementalLinker {
     };
     for (const filePath of removed) {
       this.unregister(filePath);
+      this.setTypeDependencies(filePath, []);
       diffContribution(this.contributionOf(filePath), EMPTY_CONTRIBUTION, delta);
       this.contributions.delete(filePath);
       this.indexes.delete(filePath);
@@ -254,8 +261,21 @@ export class IncrementalLinker {
     // Files whose edges may change: re-indexed ones and importers of upserted files.
     const relink = new Set(reindex);
     for (const filePath of upserted.keys()) {
-      for (const dependent of this.dependents.get(filePath) ?? []) {
-        relink.add(dependent);
+      for (const dependent of [
+        ...(this.dependents.get(filePath) ?? []),
+        ...(this.typeDependents.get(filePath) ?? []),
+      ]) {
+        if (this.knownFiles.has(dependent)) {
+          relink.add(dependent);
+        }
+      }
+    }
+    // Files that resolved types through a removed file.
+    for (const filePath of removed) {
+      for (const dependent of this.typeDependents.get(filePath) ?? []) {
+        if (this.knownFiles.has(dependent)) {
+          relink.add(dependent);
+        }
       }
     }
     for (const filePath of relink) {
@@ -322,7 +342,10 @@ export class IncrementalLinker {
     ];
     const edges = new Map<string, GraphEdge>();
     addImportEdges(index, edges);
-    addCallEdges(index, this.indexes, edges);
+    const consulted = new Set<RelPath>();
+    addCallEdges(index, this.indexes, edges, consulted);
+    consulted.delete(index.parsed.filePath);
+    this.setTypeDependencies(index.parsed.filePath, [...consulted]);
     return { nodes, edges: [...edges.values()] };
   }
 
@@ -405,6 +428,27 @@ export class IncrementalLinker {
       addToSet(this.dependents, target, filePath);
     }
     this.dependencies.set(filePath, targets);
+  }
+
+  /**
+   * Records the files a file's calls were resolved with, so a change to any
+   * of them relinks the file.
+   *
+   * @param filePath - File whose calls were resolved.
+   * @param files - Files looked into.
+   */
+  private setTypeDependencies(filePath: RelPath, files: readonly RelPath[]): void {
+    for (const target of this.typeDependencies.get(filePath) ?? []) {
+      removeFromSet(this.typeDependents, target, filePath);
+    }
+    for (const target of files) {
+      addToSet(this.typeDependents, target, filePath);
+    }
+    if (files.length === 0) {
+      this.typeDependencies.delete(filePath);
+    } else {
+      this.typeDependencies.set(filePath, files);
+    }
   }
 
   /**

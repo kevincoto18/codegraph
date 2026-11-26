@@ -75,6 +75,7 @@ export const PYTHON_LANGUAGE: LanguageDefinition = {
   id: 'python',
   displayName: 'Python',
   extensions: ['.py'],
-  version: 1,
+  // 2: classes, signatures and uses for call resolution with types.
+  version: 2,
   listImportCandidates: listPythonImportCandidates,
 };
