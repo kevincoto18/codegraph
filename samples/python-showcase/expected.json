@@ -1,0 +1,399 @@
+{
+  "$comment": "Ground truth for scripts/eval-sample.ts; see README.md for the rules.",
+  "functions": {
+    "shop/config.py": ["Settings.from_env", "Settings.with_currency", "_read", "load_settings"],
+    "shop/compat.py": ["utc_now_iso", "dumps", "stamp"],
+    "shop/domain/models.py": [
+      "Money.__add__",
+      "Money.scaled",
+      "_check_same_currency",
+      "OrderStatus.label",
+      "OrderStatus.is_final",
+      "OrderLine.subtotal",
+      "Order.Meta.describe",
+      "Order.add_line",
+      "Order.total",
+      "Order.__iter__",
+      "Order.summary"
+    ],
+    "shop/domain/events.py": ["subscribe", "publish", "_dispatch"],
+    "shop/domain/collections.py": [
+      "Registry.__init__",
+      "Registry.register",
+      "Registry.find",
+      "Registry.__iter__",
+      "Registry.__len__"
+    ],
+    "shop/ports.py": [
+      "OrderRepository.save",
+      "OrderRepository.get",
+      "OrderRepository.list_pending",
+      "Notifier.send",
+      "PaymentGateway.charge",
+      "PaymentGateway.refund",
+      "PaymentGateway._log"
+    ],
+    "shop/adapters/session.py": [
+      "Session.__init__",
+      "Session.__enter__",
+      "Session.__exit__",
+      "Session.add",
+      "Session.find",
+      "Session.close",
+      "Session._ensure_open"
+    ],
+    "shop/adapters/sql_repository.py": [
+      "SqlOrderRepository.__init__",
+      "SqlOrderRepository._session",
+      "SqlOrderRepository.save",
+      "SqlOrderRepository.get",
+      "SqlOrderRepository.list_pending"
+    ],
+    "shop/adapters/notifiers.py": [
+      "LoggingMixin.log",
+      "EmailNotifier.__init__",
+      "EmailNotifier.send",
+      "EmailNotifier._format",
+      "SmsNotifier.__init__",
+      "SmsNotifier.send",
+      "SmsNotifier._shorten",
+      "CompositeNotifier.__init__",
+      "CompositeNotifier.send"
+    ],
+    "shop/adapters/payments.py": [
+      "StripeGateway.__init__",
+      "StripeGateway.charge",
+      "StripeGateway._payload",
+      "StripeGateway._request",
+      "FakeGateway.__init__",
+      "FakeGateway.charge"
+    ],
+    "shop/utils/text.py": ["slugify", "_normalize", "truncate"],
+    "shop/utils/timing.py": ["timed", "retry", "_report"],
+    "shop/services/order_service.py": [
+      "OrderService.__init__",
+      "OrderService.create",
+      "OrderService._validate",
+      "OrderService.pending_count",
+      "OrderService.place_order",
+      "OrderService._charge",
+      "OrderService.place_order_async",
+      "OrderService._reserve_stock"
+    ],
+    "shop/services/pricing.py": [
+      "percent_off",
+      "bulk_rule",
+      "round_price",
+      "line_key",
+      "apply_discounts",
+      "iter_prices",
+      "cheapest"
+    ],
+    "shop/services/reporting.py": ["status_counts", "describe", "daily_report"],
+    "shop/container.py": [
+      "Container.__init__",
+      "Container.payments",
+      "Container.build_service",
+      "build_default"
+    ],
+    "shop/app.py": [
+      "Application.__init__",
+      "Application.__call__",
+      "Application.report",
+      "create_app"
+    ],
+    "shop/cli.py": ["build_parser", "parse_item", "main"],
+    "shop/api.py": [
+      "Router.__init__",
+      "Router.route",
+      "Router.get",
+      "Router.post",
+      "Depends",
+      "get_app",
+      "get_service",
+      "create_order",
+      "report"
+    ],
+    "tests/test_order_service.py": [
+      "FakeRepository.__init__",
+      "FakeRepository.save",
+      "FakeRepository.get",
+      "FakeRepository.list_pending",
+      "FakeNotifier.__init__",
+      "FakeNotifier.send",
+      "FakeGateway.charge",
+      "service",
+      "test_place_order",
+      "test_validation"
+    ]
+  },
+  "imports": {
+    "shop/__init__.py": ["shop/app.py", "shop/config.py"],
+    "shop/__main__.py": ["shop/cli.py"],
+    "shop/domain/__init__.py": ["shop/domain/events.py", "shop/domain/models.py"],
+    "shop/ports.py": ["shop/domain/models.py"],
+    "shop/adapters/sql_repository.py": [
+      "shop/adapters/session.py",
+      "shop/domain/__init__.py",
+      "shop/domain/models.py"
+    ],
+    "shop/adapters/payments.py": ["shop/domain/models.py", "shop/ports.py"],
+    "shop/utils/__init__.py": ["shop/utils/text.py", "shop/utils/timing.py"],
+    "shop/services/__init__.py": ["shop/services/order_service.py", "shop/services/pricing.py"],
+    "shop/services/order_service.py": [
+      "shop/container.py",
+      "shop/domain/__init__.py",
+      "shop/ports.py",
+      "shop/services/pricing.py",
+      "shop/utils/__init__.py"
+    ],
+    "shop/services/pricing.py": ["shop/domain/models.py"],
+    "shop/services/reporting.py": ["shop/domain/models.py", "shop/ports.py", "shop/utils/text.py"],
+    "shop/container.py": [
+      "shop/adapters/notifiers.py",
+      "shop/adapters/payments.py",
+      "shop/adapters/sql_repository.py",
+      "shop/config.py",
+      "shop/domain/collections.py",
+      "shop/ports.py",
+      "shop/services/__init__.py",
+      "shop/services/pricing.py"
+    ],
+    "shop/app.py": [
+      "shop/compat.py",
+      "shop/config.py",
+      "shop/container.py",
+      "shop/services/reporting.py"
+    ],
+    "shop/cli.py": ["shop/__init__.py", "shop/services/reporting.py"],
+    "shop/api.py": ["shop/app.py", "shop/services/order_service.py"],
+    "tests/test_order_service.py": ["shop/domain/models.py", "shop/services/order_service.py"]
+  },
+  "calls": {
+    "shop/config.py#Settings.from_env": [["shop/config.py#_read", "plain"]],
+    "shop/config.py#load_settings": [["shop/config.py#Settings.from_env", "class-attribute"]],
+    "shop/compat.py#stamp": [
+      ["shop/compat.py#dumps", "plain"],
+      ["shop/compat.py#utc_now_iso", "plain"]
+    ],
+    "shop/domain/models.py#Money.__add__": [
+      ["shop/domain/models.py#_check_same_currency", "plain"]
+    ],
+    "shop/domain/models.py#OrderLine.subtotal": [
+      ["shop/domain/models.py#Money.scaled", "attribute-type"]
+    ],
+    "shop/domain/models.py#Order.total": [
+      ["shop/domain/models.py#OrderLine.subtotal", "loop-variable"]
+    ],
+    "shop/domain/models.py#Order.summary": [
+      ["shop/domain/models.py#OrderStatus.label", "attribute-type"],
+      ["shop/domain/models.py#Order.total", "self"]
+    ],
+    "shop/domain/events.py#publish": [["shop/domain/events.py#_dispatch", "plain"]],
+    "shop/ports.py#PaymentGateway.refund": [["shop/ports.py#PaymentGateway._log", "self"]],
+    "shop/adapters/session.py#Session.__exit__": [
+      ["shop/adapters/session.py#Session.close", "self"]
+    ],
+    "shop/adapters/session.py#Session.add": [
+      ["shop/adapters/session.py#Session._ensure_open", "self"]
+    ],
+    "shop/adapters/session.py#Session.find": [
+      ["shop/adapters/session.py#Session._ensure_open", "self"]
+    ],
+    "shop/adapters/sql_repository.py#SqlOrderRepository.save": [
+      ["shop/adapters/sql_repository.py#SqlOrderRepository._session", "self"],
+      ["shop/adapters/session.py#Session.add", "with-as"]
+    ],
+    "shop/adapters/sql_repository.py#SqlOrderRepository.get": [
+      ["shop/adapters/session.py#Session.__init__", "constructor"],
+      ["shop/adapters/session.py#Session.find", "with-as"]
+    ],
+    "shop/adapters/notifiers.py#EmailNotifier.send": [
+      ["shop/adapters/notifiers.py#EmailNotifier._format", "self"],
+      ["shop/adapters/notifiers.py#LoggingMixin.log", "inherited"]
+    ],
+    "shop/adapters/notifiers.py#SmsNotifier.__init__": [
+      ["shop/adapters/notifiers.py#EmailNotifier.__init__", "super"]
+    ],
+    "shop/adapters/notifiers.py#SmsNotifier.send": [
+      ["shop/adapters/notifiers.py#EmailNotifier.send", "super"],
+      ["shop/adapters/notifiers.py#SmsNotifier._shorten", "self"]
+    ],
+    "shop/adapters/notifiers.py#CompositeNotifier.send": [
+      ["shop/adapters/notifiers.py#EmailNotifier.send", "loop-variable"]
+    ],
+    "shop/adapters/payments.py#StripeGateway.charge": [
+      ["shop/adapters/payments.py#StripeGateway._payload", "self"],
+      ["shop/adapters/payments.py#StripeGateway._request", "self"]
+    ],
+    "shop/adapters/payments.py#StripeGateway._request": [
+      ["shop/ports.py#PaymentGateway._log", "inherited"]
+    ],
+    "shop/utils/text.py#slugify": [["shop/utils/text.py#_normalize", "plain"]],
+    "shop/utils/timing.py#timed": [["shop/utils/timing.py#_report", "nested-function"]],
+    "shop/utils/timing.py#retry": [["shop/utils/timing.py#_report", "nested-function"]],
+    "shop/services/order_service.py#OrderService.create": [
+      ["shop/services/order_service.py#OrderService.__init__", "cls-constructor"]
+    ],
+    "shop/services/order_service.py#OrderService.pending_count": [
+      ["shop/ports.py#OrderRepository.list_pending", "attribute-type"],
+      [
+        "shop/adapters/sql_repository.py#SqlOrderRepository.list_pending",
+        "protocol-implementation"
+      ],
+      ["tests/test_order_service.py#FakeRepository.list_pending", "protocol-implementation"]
+    ],
+    "shop/services/order_service.py#OrderService.place_order": [
+      ["shop/utils/timing.py#timed", "decorator"],
+      ["shop/services/order_service.py#OrderService._validate", "class-attribute"],
+      ["shop/domain/models.py#Order.add_line", "local-variable"],
+      ["shop/services/pricing.py#apply_discounts", "module-attribute"],
+      ["shop/ports.py#OrderRepository.save", "attribute-type"],
+      ["shop/adapters/sql_repository.py#SqlOrderRepository.save", "protocol-implementation"],
+      ["tests/test_order_service.py#FakeRepository.save", "protocol-implementation"],
+      ["shop/services/order_service.py#OrderService._charge", "self"],
+      ["shop/ports.py#Notifier.send", "attribute-type"],
+      ["shop/adapters/notifiers.py#EmailNotifier.send", "protocol-implementation"],
+      ["shop/adapters/notifiers.py#SmsNotifier.send", "protocol-implementation"],
+      ["shop/adapters/notifiers.py#CompositeNotifier.send", "protocol-implementation"],
+      ["tests/test_order_service.py#FakeNotifier.send", "protocol-implementation"],
+      ["shop/domain/models.py#Order.summary", "local-variable"],
+      ["shop/domain/events.py#publish", "re-export"],
+      ["shop/domain/models.py#Order.total", "local-variable"]
+    ],
+    "shop/services/order_service.py#OrderService._charge": [
+      ["shop/utils/timing.py#retry", "decorator"],
+      ["shop/ports.py#PaymentGateway.charge", "attribute-type"],
+      ["shop/adapters/payments.py#StripeGateway.charge", "abc-implementation"],
+      ["shop/adapters/payments.py#FakeGateway.charge", "abc-implementation"],
+      ["shop/domain/models.py#Order.total", "parameter-type"]
+    ],
+    "shop/services/order_service.py#OrderService.place_order_async": [
+      ["shop/services/order_service.py#OrderService._reserve_stock", "self"],
+      ["shop/services/order_service.py#OrderService.place_order", "reference"]
+    ],
+    "shop/services/pricing.py#percent_off": [
+      ["shop/domain/models.py#Money.scaled", "attribute-type"]
+    ],
+    "shop/services/pricing.py#bulk_rule": [
+      ["shop/services/pricing.py#percent_off", "nested-function"]
+    ],
+    "shop/services/pricing.py": [["shop/services/pricing.py#percent_off", "module-level"]],
+    "shop/services/pricing.py#line_key": [
+      ["shop/domain/models.py#OrderLine.subtotal", "parameter-type"]
+    ],
+    "shop/services/pricing.py#apply_discounts": [
+      ["shop/services/pricing.py#line_key", "reference"]
+    ],
+    "shop/services/pricing.py#iter_prices": [
+      ["shop/services/pricing.py#round_price", "plain"],
+      ["shop/domain/models.py#OrderLine.subtotal", "loop-variable"]
+    ],
+    "shop/services/pricing.py#cheapest": [
+      ["shop/domain/models.py#OrderLine.subtotal", "lambda-parameter"]
+    ],
+    "shop/services/reporting.py#status_counts": [
+      ["shop/ports.py#OrderRepository.list_pending", "parameter-type"],
+      [
+        "shop/adapters/sql_repository.py#SqlOrderRepository.list_pending",
+        "protocol-implementation"
+      ],
+      ["tests/test_order_service.py#FakeRepository.list_pending", "protocol-implementation"],
+      ["shop/domain/models.py#OrderStatus.label", "attribute-type"]
+    ],
+    "shop/services/reporting.py#describe": [
+      ["shop/domain/models.py#OrderStatus.label", "attribute-type"],
+      ["shop/utils/text.py#slugify", "module-alias"],
+      ["shop/utils/text.py#truncate", "module-alias"],
+      ["shop/domain/models.py#Order.summary", "parameter-type"]
+    ],
+    "shop/services/reporting.py#daily_report": [
+      ["shop/services/reporting.py#describe", "plain"],
+      ["shop/ports.py#OrderRepository.list_pending", "parameter-type"],
+      [
+        "shop/adapters/sql_repository.py#SqlOrderRepository.list_pending",
+        "protocol-implementation"
+      ],
+      ["tests/test_order_service.py#FakeRepository.list_pending", "protocol-implementation"],
+      ["shop/domain/models.py#Order.Meta.describe", "nested-class"]
+    ],
+    "shop/container.py#Container.__init__": [
+      ["shop/adapters/sql_repository.py#SqlOrderRepository.__init__", "constructor"],
+      ["shop/adapters/notifiers.py#CompositeNotifier.__init__", "constructor"],
+      ["shop/adapters/notifiers.py#EmailNotifier.__init__", "constructor"],
+      ["shop/adapters/notifiers.py#SmsNotifier.__init__", "constructor"],
+      ["shop/domain/collections.py#Registry.__init__", "constructor"]
+    ],
+    "shop/container.py#Container.payments": [
+      ["shop/domain/collections.py#Registry.find", "attribute-type"],
+      ["shop/domain/collections.py#Registry.register", "attribute-type"],
+      ["shop/adapters/payments.py#FakeGateway.__init__", "constructor"],
+      ["shop/adapters/payments.py#StripeGateway.__init__", "constructor"]
+    ],
+    "shop/container.py#Container.build_service": [
+      ["shop/services/pricing.py#bulk_rule", "plain"],
+      ["shop/services/order_service.py#OrderService.__init__", "constructor"]
+    ],
+    "shop/container.py#build_default": [
+      ["shop/container.py#Container.__init__", "constructor"],
+      ["shop/config.py#Settings.from_env", "class-attribute"]
+    ],
+    "shop/app.py#Application.__init__": [
+      ["shop/container.py#Container.build_service", "parameter-type"]
+    ],
+    "shop/app.py#Application.__call__": [
+      ["shop/services/order_service.py#OrderService.place_order", "attribute-type"],
+      ["shop/domain/models.py#Order.summary", "return-type"]
+    ],
+    "shop/app.py#Application.report": [
+      ["shop/services/reporting.py#daily_report", "plain"],
+      ["shop/compat.py#stamp", "plain"]
+    ],
+    "shop/app.py#create_app": [
+      ["shop/container.py#Container.__init__", "constructor"],
+      ["shop/config.py#load_settings", "plain"],
+      ["shop/app.py#Application.__init__", "constructor"]
+    ],
+    "shop/cli.py#main": [
+      ["shop/cli.py#build_parser", "plain"],
+      ["shop/app.py#create_app", "re-export"],
+      ["shop/cli.py#parse_item", "reference"],
+      ["shop/app.py#Application.__call__", "callable-instance"],
+      ["shop/services/reporting.py#daily_report", "local-import"]
+    ],
+    "shop/cli.py": [["shop/cli.py#main", "module-level"]],
+    "shop/__main__.py": [["shop/cli.py#main", "module-level"]],
+    "shop/api.py#Router.get": [["shop/api.py#Router.route", "self"]],
+    "shop/api.py#Router.post": [["shop/api.py#Router.route", "self"]],
+    "shop/api.py": [["shop/api.py#Router.__init__", "module-level"]],
+    "shop/api.py#get_app": [["shop/app.py#create_app", "plain"]],
+    "shop/api.py#get_service": [["shop/api.py#get_app", "plain"]],
+    "shop/api.py#create_order": [
+      ["shop/api.py#Router.post", "decorator"],
+      ["shop/api.py#Depends", "dependency-injection"],
+      ["shop/api.py#get_service", "dependency-injection"],
+      ["shop/services/order_service.py#OrderService.place_order", "parameter-type"],
+      ["shop/domain/models.py#Order.summary", "return-type"],
+      ["shop/services/order_service.py#OrderService.pending_count", "property"]
+    ],
+    "shop/api.py#report": [
+      ["shop/api.py#Router.get", "decorator"],
+      ["shop/api.py#Depends", "dependency-injection"],
+      ["shop/api.py#get_app", "dependency-injection"],
+      ["shop/app.py#Application.report", "parameter-type"]
+    ],
+    "tests/test_order_service.py#service": [
+      ["shop/services/order_service.py#OrderService.__init__", "constructor"],
+      ["tests/test_order_service.py#FakeRepository.__init__", "constructor"],
+      ["tests/test_order_service.py#FakeNotifier.__init__", "constructor"]
+    ],
+    "tests/test_order_service.py#test_place_order": [
+      ["shop/services/order_service.py#OrderService.place_order", "parameter-type"],
+      ["shop/domain/models.py#Order.total", "return-type"],
+      ["shop/services/order_service.py#OrderService.pending_count", "property"]
+    ],
+    "tests/test_order_service.py#test_validation": [
+      ["shop/services/order_service.py#OrderService._validate", "class-attribute"]
+    ]
+  }
+}
