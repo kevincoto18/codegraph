@@ -49,3 +49,7 @@ package:
 # Set the version for a release, e.g. `just release 0.2.0` (then update CHANGELOG.md)
 release version:
     npm version {{ version }} --no-git-tag-version
+
+# Measure graph quality on the Python showcase sample (writes the report to bench/results)
+eval-python:
+    node scripts/run.mjs scripts/eval-sample.ts samples/python-showcase --out bench/results/eval-python.md

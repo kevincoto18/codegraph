@@ -26,3 +26,4 @@ CONTRIBUTING.md
 *.log
 justfile
 .husky/**
+planning/**

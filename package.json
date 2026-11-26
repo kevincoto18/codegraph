@@ -2,7 +2,7 @@
   "name": "codegraph-map",
   "displayName": "CodeGraph Map",
   "description": "Interactive graph of files, functions, imports and calls for TypeScript, JavaScript, Python, Java, C# and Go projects.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "kcoto18",
   "private": true,
   "license": "MIT",

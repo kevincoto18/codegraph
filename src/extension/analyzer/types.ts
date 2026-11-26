@@ -6,6 +6,7 @@
  * nodes and edges.
  */
 import type { FunctionKind, RelPath } from '../../shared';
+import type { PyFunctionInfo, PyModuleInfo } from './pythonModel';
 
 /** How a local name was bound by an import or `require`. */
 export type ImportBindingKind = 'default' | 'named' | 'namespace';
@@ -44,6 +45,14 @@ export interface ParsedImport {
   readonly line: number;
   /** Local names bound by the statement (empty for side-effect imports and re-exports). */
   readonly bindings: readonly ImportBinding[];
+  /** `from m import *` (Python): every public name of the module becomes visible. */
+  readonly star?: boolean;
+  /**
+   * Imports the package of a `from pkg import name` statement only to look
+   * `name` up (Python): when every name is a submodule, the package is not
+   * a dependency of its own.
+   */
+  readonly lookupOnly?: boolean;
 }
 
 /** Shape of a call expression found inside a function body. */
@@ -97,6 +106,8 @@ export interface ParsedFunction {
   readonly resultType?: string;
   /** Calls made from this function, including from nested closures. */
   readonly calls: readonly ParsedCall[];
+  /** Python: signature details and every use of a name (resolved with types). */
+  readonly python?: PyFunctionInfo;
 }
 
 /** Maps a name visible to importers to the local declaration that backs it. */
@@ -132,4 +143,6 @@ export interface ParsedFile {
   readonly namespace?: string;
   /** Types declared in the file (Java, C#, Go). */
   readonly types?: readonly ParsedType[];
+  /** Python: classes, module variables and module-level uses. */
+  readonly python?: PyModuleInfo;
 }

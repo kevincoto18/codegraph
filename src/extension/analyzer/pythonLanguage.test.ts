@@ -41,4 +41,19 @@ describe('listPythonImportCandidates', () => {
     ]);
     expect(listPythonImportCandidates('main.py', '')).toEqual([]);
   });
+
+  it('looks for standard library modules only at the root and in src/', () => {
+    expect(listPythonImportCandidates('shop/domain/events.py', 'collections')).toEqual([
+      'collections.py',
+      'collections/__init__.py',
+      'src/collections.py',
+      'src/collections/__init__.py',
+    ]);
+    expect(listPythonImportCandidates('shop/domain/events.py', 'json.decoder')).toEqual([
+      'json/decoder.py',
+      'json/decoder/__init__.py',
+      'src/json/decoder.py',
+      'src/json/decoder/__init__.py',
+    ]);
+  });
 });

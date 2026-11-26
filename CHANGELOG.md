@@ -6,6 +6,28 @@ All notable changes to CodeGraph Map are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-25
+
+### Changed
+
+- **Much more precise Python graphs.** Calls are resolved with types across
+  files: annotated parameters and return types, attributes set in `__init__`,
+  local and loop variables, `with … as`, inheritance and `super()`,
+  `Class()` → `__init__`, properties, decorators, callbacks (`map`, `key=`,
+  `partial`), `Depends(...)` and `obj()` → `__call__`. Calls to a `Protocol`
+  or abstract method also reach their implementations. Module-level code
+  (`if __name__ == "__main__":`) calls from its file. On a reference sample
+  (`samples/python-showcase`) the share of calls found goes from 30 % to 99 %,
+  with no wrong connection; on the Python standard library, 70 % more calls.
+- **Python imports**: imports under `if TYPE_CHECKING:`, inside functions and
+  in `try`/`if` blocks are found; `from pkg import module` depends on the
+  module only, not on the package; standard library modules (`collections`,
+  `subprocess`…) never point to a project file with the same name; re-exports
+  and `import *` with `__all__` are followed.
+- Python functions defined in `if`/`else` branches and `@overload` stubs are
+  one node; methods of nested classes are named `Outer.Inner.method`; property
+  setters belong to their property.
+
 ## [0.2.0] - 2026-11-25
 
 ### Added
@@ -81,6 +103,7 @@ First public release.
 - The panel **reopens after a window reload** with the same view.
 - Respects `files.exclude` and `.gitignore`.
 
-[Unreleased]: https://github.com/kevincoto18/codegraph/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kevincoto18/codegraph/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/kevincoto18/codegraph/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kevincoto18/codegraph/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kevincoto18/codegraph/releases/tag/v0.1.0

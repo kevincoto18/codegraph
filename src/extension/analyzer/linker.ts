@@ -25,6 +25,7 @@ import { LANGUAGES } from './languages';
 import type { SymbolScope } from './scope';
 import { buildSymbolScope, receiverTypeFiles, resolveScopedCall } from './scope';
 import { SymbolTable } from './symbols';
+import { PythonResolver } from './pythonResolver';
 import type { ImportBinding, ImportSyntax, ParsedCall, ParsedFile, ParsedFunction } from './types';
 
 /** Export name used for default exports. */
@@ -58,6 +59,8 @@ export interface FileIndex {
   readonly bindings: ReadonlyMap<string, ResolvedBinding>;
   /** Resolved imports as `[targetFile, line]`, in source order. */
   readonly resolvedImports: readonly (readonly [RelPath, number])[];
+  /** Files of the `from m import *` statements (Python). */
+  readonly starImports: readonly RelPath[];
   /** Namespace-based visibility (Java, C#, Go); `null` for path-based languages. */
   readonly scope: SymbolScope | null;
 }
@@ -136,7 +139,11 @@ export function indexFile(
     methodsByClass.set(fn.className, methods);
   }
 
-  const { bindings, resolvedImports } = resolveFileImports(parsed, knownFiles, languages);
+  const { bindings, resolvedImports, starImports } = resolveFileImports(
+    parsed,
+    knownFiles,
+    languages,
+  );
   const scope = buildSymbolScope(parsed, languages.forFile(parsed.filePath), symbols);
 
   return {
@@ -148,6 +155,7 @@ export function indexFile(
     exports: new Map(parsed.exports.map((entry) => [entry.exportedName, entry.localName])),
     bindings,
     resolvedImports: scope === null ? resolvedImports : [...resolvedImports, ...scope.typeImports],
+    starImports,
     scope,
   };
 }
@@ -201,24 +209,47 @@ function resolveFileImports(
   parsed: ParsedFile,
   knownFiles: ReadonlySet<RelPath>,
   languages: LanguageRegistry,
-): Pick<FileIndex, 'bindings' | 'resolvedImports'> {
+): Pick<FileIndex, 'bindings' | 'resolvedImports' | 'starImports'> {
   const bindings = new Map<string, ResolvedBinding>();
   const resolvedImports: (readonly [RelPath, number])[] = [];
+  const starImports: RelPath[] = [];
+  const targets = parsed.imports.map((parsedImport) =>
+    (parsedImport.target ?? 'module') === 'module' // Others are resolved by name (scope.ts).
+      ? languages.resolveImport(parsed.filePath, parsedImport.specifier, knownFiles)
+      : null,
+  );
+  // Names bound to a submodule (`from pkg import mod`), by statement line.
+  const submoduleNames = new Set<string>();
+  parsed.imports.forEach((parsedImport, index) => {
+    if (targets[index] !== null && parsedImport.lookupOnly !== true) {
+      for (const binding of parsedImport.bindings) {
+        submoduleNames.add(`${String(parsedImport.line)}:${binding.localName}`);
+      }
+    }
+  });
 
-  for (const parsedImport of parsed.imports) {
-    if ((parsedImport.target ?? 'module') !== 'module') {
-      continue; // Resolved by name (see scope.ts).
+  parsed.imports.forEach((parsedImport, index) => {
+    const targetFile = targets[index];
+    if (targetFile === null || targetFile === undefined) {
+      return;
     }
-    const targetFile = languages.resolveImport(parsed.filePath, parsedImport.specifier, knownFiles);
-    if (targetFile === null) {
-      continue;
+    // `from pkg import mod` only looks into the package to find the submodule.
+    const onlySubmodules =
+      parsedImport.lookupOnly === true &&
+      parsedImport.bindings.every((binding) =>
+        submoduleNames.has(`${String(parsedImport.line)}:${binding.localName}`),
+      );
+    if (!onlySubmodules) {
+      resolvedImports.push([targetFile, parsedImport.line]);
     }
-    resolvedImports.push([targetFile, parsedImport.line]);
+    if (parsedImport.star === true) {
+      starImports.push(targetFile);
+    }
     for (const binding of parsedImport.bindings) {
       bindings.set(binding.localName, { binding, syntax: parsedImport.syntax, targetFile });
     }
-  }
-  return { bindings, resolvedImports };
+  });
+  return { bindings, resolvedImports, starImports };
 }
 
 // ---------------------------------------------------------------------------
@@ -289,12 +320,19 @@ export function addImportEdges(fileIndex: FileIndex, edges: Map<string, GraphEdg
  * @param fileIndex - Index of the file whose functions are callers.
  * @param workspace - Indexes of every file.
  * @param edges - Edge accumulator keyed by id (mutated in place).
+ * @param consulted - Filled with the files looked into while resolving
+ *   Python calls with types (other than the file's imports).
  */
 export function addCallEdges(
   fileIndex: FileIndex,
   workspace: WorkspaceIndex,
   edges: Map<string, GraphEdge>,
+  consulted?: Set<RelPath>,
 ): void {
+  if (fileIndex.parsed.python !== undefined) {
+    new PythonResolver(workspace, consulted).addCallEdges(fileIndex, edges);
+    return;
+  }
   for (const fn of fileIndex.functions) {
     for (const call of fn.parsed.calls) {
       if (fileIndex.scope !== null) {
