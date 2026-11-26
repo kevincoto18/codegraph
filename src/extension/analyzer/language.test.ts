@@ -105,7 +105,7 @@ describe('LanguageRegistry', () => {
       '.go',
     ]);
     expect(LANGUAGES.sourceGlob).toBe('**/*.{ts,tsx,js,jsx,py,java,cs,go}');
-    expect(LANGUAGES.versionKey).toBe('typescript1+python2+java1+csharp1+go1');
+    expect(LANGUAGES.versionKey).toBe('typescript1+python3+java1+csharp1+go1');
     expect(LANGUAGES.forFile('src/main/java/App.java')?.id).toBe('java');
     expect(LANGUAGES.forFile('Services/UserService.cs')?.id).toBe('csharp');
     expect(LANGUAGES.forFile('cmd/main.go')?.id).toBe('go');

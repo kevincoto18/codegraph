@@ -29,6 +29,8 @@ type PyValue =
       readonly fn: IndexedFunction;
       readonly file: RelPath;
       readonly owner?: ClassRef;
+      /** Reached through `super()`: runs exactly this method, never an override. */
+      readonly viaSuper?: boolean;
     }
   /** A collection whose elements are `of`. */
   | { readonly v: 'items'; readonly of: readonly PyValue[] };
@@ -54,6 +56,63 @@ interface ModuleTables {
   readonly functions: ReadonlyMap<string, IndexedFunction>;
   /** Files whose names `from m import *` brings in. */
   readonly starFiles: readonly RelPath[];
+}
+
+/**
+ * Pseudo-path recorded as a dependency by files whose calls depend on every
+ * Python file (implementations of abstract methods may be anywhere, also in
+ * files added later).
+ */
+export const ANY_PYTHON_FILE = '\u0000python';
+
+/** A method that may run in place of an abstract one. */
+interface Implementation {
+  readonly cls: ClassRef;
+  readonly fn: IndexedFunction;
+}
+
+/** Methods of every Python class of a workspace, by name (shared by the resolvers of one link). */
+interface MethodIndex {
+  /** Indexes the table was built from; the table is stale when any of them changed. */
+  readonly files: readonly FileIndex[];
+  readonly byName: ReadonlyMap<string, readonly Implementation[]>;
+}
+
+/** Method tables by workspace, rebuilt when the workspace changes. */
+const METHOD_INDEXES = new WeakMap<WorkspaceIndex, MethodIndex>();
+
+/**
+ * Returns the method table of a workspace, building it when missing or stale.
+ *
+ * @param workspace - Indexes of every file.
+ * @returns The table.
+ */
+function methodIndexOf(workspace: WorkspaceIndex): MethodIndex {
+  const files = [...workspace.values()];
+  const cached = METHOD_INDEXES.get(workspace);
+  if (
+    cached?.files.length === files.length &&
+    cached.files.every((file, index) => file === files[index])
+  ) {
+    return cached;
+  }
+  const byName = new Map<string, Implementation[]>();
+  for (const file of files) {
+    if (file.parsed.python === undefined) {
+      continue;
+    }
+    for (const fn of file.functions) {
+      const className = fn.parsed.className;
+      if (className !== undefined) {
+        const list = byName.get(fn.parsed.name) ?? [];
+        list.push({ cls: { file: file.parsed.filePath, name: className }, fn });
+        byName.set(fn.parsed.name, list);
+      }
+    }
+  }
+  const index: MethodIndex = { files, byName };
+  METHOD_INDEXES.set(workspace, index);
+  return index;
 }
 
 /** Deepest evaluation; deeper expressions are left unknown. */
@@ -307,6 +366,9 @@ export class PythonResolver {
     for (const value of values) {
       if (value.v === 'function') {
         targets.push(value.fn.id);
+        if (value.owner !== undefined && value.viaSuper !== true) {
+          targets.push(...this.implementationsOf(value.owner, value.fn));
+        }
       } else if (use.kind === 'call' && value.v === 'class') {
         const init = this.findMember({ v: 'instance', cls: value.cls }, '__init__');
         if (init?.kind === 'method') {
@@ -320,6 +382,51 @@ export class PythonResolver {
       }
     }
     return [...new Set(targets)];
+  }
+
+  /**
+   * Methods that may run when an abstract method is called: for an ABC (or
+   * any class whose method has no body), the overrides in its subclasses;
+   * for a `Protocol`, also the classes that define every method of the
+   * protocol without deriving from it (structural typing).
+   *
+   * @param owner - Class that declares the called method.
+   * @param fn - Called method.
+   * @returns Ids of the implementations (empty for concrete methods).
+   */
+  private implementationsOf(owner: ClassRef, fn: IndexedFunction): string[] {
+    const ownerClass = this.tablesOf(owner.file)?.classes.get(owner.name);
+    if (ownerClass === undefined || (fn.parsed.python?.abstract !== true && !ownerClass.protocol)) {
+      return [];
+    }
+    const index = methodIndexOf(this.workspace);
+    // Any Python file, existing or added later, may declare an implementation.
+    this.consulted.add(ANY_PYTHON_FILE);
+    const protocolMembers = ownerClass.protocol
+      ? [...(this.tablesOf(owner.file)?.methods.get(owner.name)?.keys() ?? [])]
+      : [];
+    const ids: string[] = [];
+    for (const candidate of index.byName.get(fn.parsed.name) ?? []) {
+      const { cls } = candidate;
+      if (cls.file === owner.file && cls.name === owner.name) {
+        continue;
+      }
+      if (this.tablesOf(cls.file)?.classes.get(cls.name)?.protocol === true) {
+        continue;
+      }
+      const derives = this.mro(cls).some(
+        (base) => base.file === owner.file && base.name === owner.name,
+      );
+      const conforms =
+        ownerClass.protocol &&
+        protocolMembers.every(
+          (member) => this.findMember({ v: 'instance', cls }, member)?.kind === 'method',
+        );
+      if (derives || conforms) {
+        ids.push(candidate.fn.id);
+      }
+    }
+    return ids;
   }
 
   /**
@@ -525,6 +632,7 @@ export class PythonResolver {
           fn: member.fn,
           file: member.owner.file,
           owner: member.owner,
+          ...(value.v === 'super' ? { viaSuper: true } : {}),
         };
         // Reading a property gives what it returns.
         return member.fn.parsed.python?.property === true && value.v !== 'class'

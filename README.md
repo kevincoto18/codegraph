@@ -91,18 +91,25 @@ Logs are written to the **CodeGraph** output channel (`Ctrl+Shift+U`).
 
 ## Languages
 
-| Language                | Parser                  | Files                                                       | Imports resolved                                                                                                                                                                                                              |
-| ----------------------- | ----------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TypeScript / JavaScript | TypeScript Compiler API | `.ts` `.tsx` `.js` `.jsx` (not `.d.ts`)                     | Relative paths, `index` files, `.js` → `.ts`                                                                                                                                                                                  |
-| Python                  | Tree-sitter (WASM)      | `.py` (not `__pycache__`, `venv`, `.venv`, `site-packages`) | Relative (`.`, `..`), absolute from the root, `src/` or the importer's folders, packages (`__init__.py`), `from pkg import module`                                                                                            |
-| Java                    | Tree-sitter (WASM)      | `.java` (not `target`, `.gradle`)                           | By package and type name: `import a.b.Repo`, `import a.b.*`, same package without import; calls typed by parameters, locals (`var`), fields and `new`, inherited methods                                                      |
-| C#                      | Tree-sitter (WASM)      | `.cs` (not `obj`)                                           | By namespace and type name: `using A.B`, `using R = A.B.Repo`, `using static`, parent namespaces, block and file-scoped namespaces, partial classes; properties with code are functions                                       |
-| Go                      | Tree-sitter (WASM)      | `.go` (not `vendor`)                                        | A package is a folder: same-package functions, imports matched to a folder by path suffix (`example.com/app/internal/db` → `internal/db`), aliases, methods by receiver type, embedded structs, `x := pkg.New()` result types |
+| Language                | Parser                  | Files                                                       | Imports resolved                                                                                                                                                                                                                                                  |
+| ----------------------- | ----------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript / JavaScript | TypeScript Compiler API | `.ts` `.tsx` `.js` `.jsx` (not `.d.ts`)                     | Relative paths, `index` files, `.js` → `.ts`                                                                                                                                                                                                                      |
+| Python                  | Tree-sitter (WASM)      | `.py` (not `__pycache__`, `venv`, `.venv`, `site-packages`) | Relative (`.`, `..`), absolute from the root, `src/` or a script's folders (never for standard library modules), packages (`__init__.py`), `from pkg import module`, re-exports and `import *` with `__all__`, imports under `TYPE_CHECKING` and inside functions |
+| Java                    | Tree-sitter (WASM)      | `.java` (not `target`, `.gradle`)                           | By package and type name: `import a.b.Repo`, `import a.b.*`, same package without import; calls typed by parameters, locals (`var`), fields and `new`, inherited methods                                                                                          |
+| C#                      | Tree-sitter (WASM)      | `.cs` (not `obj`)                                           | By namespace and type name: `using A.B`, `using R = A.B.Repo`, `using static`, parent namespaces, block and file-scoped namespaces, partial classes; properties with code are functions                                                                           |
+| Go                      | Tree-sitter (WASM)      | `.go` (not `vendor`)                                        | A package is a folder: same-package functions, imports matched to a folder by path suffix (`example.com/app/internal/db` → `internal/db`), aliases, methods by receiver type, embedded structs, `x := pkg.New()` result types                                     |
 
 Files in `node_modules`, `dist`, `build`, `vendor`, `target`, `obj` and `.git`,
 and files hidden by `files.exclude` or `.gitignore`, are skipped. More languages
 (PHP, Rust, Kotlin, Ruby) are planned; see
 [docs/adding-a-language.md](docs/adding-a-language.md).
+
+Python calls are resolved **with types** across files: annotated parameters
+and return types, attributes set in `__init__`, local variables
+(`x = Repo()`), loop variables, `with … as`, inheritance and `super()`,
+`Class()` → `__init__`, properties, decorators, callbacks and `Depends(...)`.
+A call to a `Protocol` or abstract method also points to its implementations.
+An expression whose type cannot be known adds no connection.
 
 Java, C# and Go calls such as `repo.save()` are resolved **by type**: the parser
 infers the receiver's type from what the same file says (parameters, local

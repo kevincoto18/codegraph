@@ -20,6 +20,7 @@ import {
 } from './linker';
 import type { LanguageRegistry } from './language';
 import { LANGUAGES } from './languages';
+import { ANY_PYTHON_FILE } from './pythonResolver';
 import { SymbolTable, namespaceKey, namespaceSetKey, namespacesOf } from './symbols';
 import type { ParsedFile } from './types';
 
@@ -265,6 +266,14 @@ export class IncrementalLinker {
         ...(this.dependents.get(filePath) ?? []),
         ...(this.typeDependents.get(filePath) ?? []),
       ]) {
+        if (this.knownFiles.has(dependent)) {
+          relink.add(dependent);
+        }
+      }
+    }
+    // Files whose calls depend on every Python file (implementations of abstract methods).
+    if ([...upserted.keys(), ...removed].some((filePath) => filePath.endsWith('.py'))) {
+      for (const dependent of this.typeDependents.get(ANY_PYTHON_FILE) ?? []) {
         if (this.knownFiles.has(dependent)) {
           relink.add(dependent);
         }

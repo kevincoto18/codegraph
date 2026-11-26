@@ -35,9 +35,13 @@ describe('Python graph quality (samples/python-showcase)', () => {
     expect(precisionOf(evaluation.calls)).toBe(1);
   });
 
+  it('never reports an import that does not exist', () => {
+    expect(evaluation.imports.extra).toEqual([]);
+  });
+
   it('keeps import and call recall at least at the current level', () => {
     // Raise these thresholds whenever the analyzer improves.
     expect(recallOf(evaluation.imports)).toBe(1);
-    expect(recallOf(evaluation.calls)).toBeGreaterThanOrEqual(0.88);
+    expect(recallOf(evaluation.calls)).toBeGreaterThanOrEqual(0.99);
   });
 });
